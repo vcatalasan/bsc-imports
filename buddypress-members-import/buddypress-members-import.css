@@ -1,0 +1,12 @@
+tr th {
+    padding-right: 20px;
+    text-align: right;
+}
+tr {
+	font-size: 13px;
+}
+.email-template {
+    min-height: 200px;
+    width: 400px;
+    max-width: 400px;
+}
