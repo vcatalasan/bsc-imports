@@ -2,7 +2,7 @@
 /*
 Plugin Name: BSC Imports
 Plugin URI: http://www.bscmanage.com/my-plugin/
-Description: Imports user profiles and transactions from external sources into Wordpress, BuddyPress, and PMPro tables
+Description: Imports user profiles and transactions from external sources into BuddyPress and PMPro
 Version: 1.0.0
 Requires at least: WordPress 2.9.1 / BuddyPress 1.2
 Tested up to: WordPress 2.9.1 / BuddyPress 1.2

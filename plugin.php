@@ -2,16 +2,14 @@
 // Exit if accessed directly
 if (!defined('ABSPATH')) exit;
 
-class BSC_Imports_Plugin
+require(plugin_dir_path(__FILE__) . 'includes/bsc-imports.php');
+
+class BSC_Imports_Plugin extends BSC_Imports
 {
 
 	// plugin general initialization
 
 	private static $instance = null;
-
-	static $settings;
-	static $users = 'import_users';
-	static $transactions = 'import_transactions';
 
 	/**
 	 * Return an instance of this class.
@@ -41,6 +39,8 @@ class BSC_Imports_Plugin
 			'dir_path' => plugin_dir_path( __FILE__ ),
 			'dir_url'  => plugin_dir_url( __FILE__ )
 		);
+
+		parent::__construct();
 	}
 
 }
