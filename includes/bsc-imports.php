@@ -11,6 +11,11 @@ class BSC_Imports
 	static $settings;
 	static $users = 'import_users';
 	static $transactions = 'import_transactions';
+    static $upload_error = array(
+        UPLOAD_ERR_INI_SIZE => 'The uploaded file exceeds the upload_max_filesize directive in php.ini',
+        UPLOAD_ERR_PARTIAL => 'The uploaded file was only partially uploaded',
+        UPLOAD_ERR_NO_FILE => 'No file was uploaded'
+    );
 
 	function __construct() {
         self::$settings['bsc_imports_page_link'] = 'tools.php?page=bsc_membership_import';
@@ -237,8 +242,18 @@ Thanks
         $ext = strtolower(end(explode( '.', $filename)));
 
         if ('csv' !== $ext) {
-            $html_message = '<div class="updated">';
+            $html_message = '<div class="error">';
             $html_message .= 'Please upload only csv file!!';
+            $html_message .= '</div>';
+            return $html_message;
+        }
+
+        $upload_error = $_FILES[$file]['error'];
+
+        // check upload error
+        if ($upload_error) {
+            $html_message = '<div class="error">';
+            $html_message .= self::$upload_error[$upload_error] ? self::$upload_error[$upload_error] : "Unable to upload file (ERROR=$upload_error)";
             $html_message .= '</div>';
             return $html_message;
         }
@@ -260,30 +275,31 @@ Thanks
                 // normalize the field name, strip to 20 chars if too long
                 $f = substr(preg_replace('/[^0-9a-z]/', '_', $f), 0, 20);
                 // derive type from field name
-                $t = preg_match('/date/i', $f) ? 'TIMESTAMP' : 'VARCHAR(50)';
+                $t = preg_match('/date/i', $f) ? 'DATETIME DEFAULT NULL' : 'VARCHAR(50)';
                 $field_count++;
                 $fields[] = "`$f` $t";
             }
         }
         //add extra fields for tracking
-        $fields[] = "`upload_date` TIMESTAMP";
-        $fields[] = "`import_date` TIMESTAMP";
+        $fields[] = "`upload_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
+        $fields[] = "`import_date` DATETIME DEFAULT NULL";
         $sql = "CREATE TABLE IF NOT EXISTS $table (" . implode(', ', $fields) . ');';
         //echo $sql . "\n";
-        //$wpdb->query($sql);
+        $wpdb->query($sql);
 
         while (($data = fgetcsv($handle)) !== FALSE) {
             $values = array();
             for ($i = 0; $i < $field_count; $i++) {
                 $v = $data[$i];
-                preg_match('/TIMESTAMP/', $fields[$i]) and $v = date('Y-m-d H:i:s', strtotime($v));
+                preg_match('/TIMESTAMP|DATETIME/', $fields[$i]) and $v = date('Y-m-d H:i:s', strtotime($v));
                 $values[] = '\'' . addslashes($v) . '\'';
             }
-            //set upload date only
+            //set upload and import date
             $values[] = '\'' . addslashes(date('Y-m-d H:i:s')) . '\'';
+            $values[] = 'NULL';
             $sql = "INSERT into $table values(" . implode(', ', $values) . ');';
             //echo $sql . "\n";
-            //$wpdb->query($sql);
+            $wpdb->query($sql);
         }
         fclose($handle);
         ini_set('auto_detect_line_endings', FALSE);
