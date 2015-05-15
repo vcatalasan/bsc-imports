@@ -16,10 +16,24 @@ class BSC_Imports
         UPLOAD_ERR_PARTIAL => 'The uploaded file %s was only partially uploaded',
         UPLOAD_ERR_NO_FILE => 'No file was uploaded'
     );
+    static $email_template = 'Hello {USERNAME}
+
+Username: {USERNAME}
+Password: {PASSWORD}
+Login url: {LOGIN_URL}
+
+Thanks
+{SITE_ADMIN}';
+
+    var $users_uploaded, $transactions_uploaded;
+    var $total_users_uploaded, $total_transactions_uploaded;
+    var $uploaded;
 
 	function __construct() {
+        // initialize values
         self::$settings['bsc_imports_page_link'] = 'tools.php?page=bsc_membership_import';
         self::$upload_error[UPLOAD_ERR_INI_SIZE] .= sprintf(' <= %dM each.', ini_get('upload_max_filesize'));
+
 		// add admin menu
 		add_action('admin_menu', array($this, 'bp_imports_menu'));
 	}
@@ -44,21 +58,17 @@ class BSC_Imports
 	function membership_import_page() {
 		global $wpdb;
 
-        // set defaults
+        // set initial values
 		if ( ! get_option( 'email-template' ) ) {
-			$email_template = 'Hello {USERNAME}
-
-Username: {USERNAME}
-Password: {PASSWORD}
-Login url: {LOGIN_URL}
-
-Thanks
-{SITE_ADMIN}';
-			update_option( 'email-template', $email_template );
-
+			update_option( 'email-template', self::$email_template );
 		}
 
-		$html_message = array();
+        $this->users_uploaded = $this->transactions_uploaded = 0;
+
+        $this->total_users_uploaded = 1;
+        $this->total_transactions_uploaded = 1;
+
+        $html_message = array();
 
 		//Check whether the curent user have the access or not
 		if ( ! current_user_can( 'manage_options' ) )
@@ -67,8 +77,8 @@ Thanks
 		// if the form is submitted
 		switch ( $_POST['mode'] ) {
             case 'upload':
-                $_FILES['users_csv_file']['name'] and $html_message[] = $this->csv2sql('users_csv_file', 'import_users') and update_option('users_uploaded', time());
-                $_FILES['transactions_csv_file']['name'] and $html_message[] = $this->csv2sql('transactions_csv_file', 'import_transactions') and update_option('transactions_uploaded', time());
+                $_FILES['users_csv_file']['name'] and $html_message[] = $this->csv2sql('users_csv_file', 'import_users') and $this->users_uploaded = $this->uploaded;
+                $_FILES['transactions_csv_file']['name'] and $html_message[] = $this->csv2sql('transactions_csv_file', 'import_transactions') and $this->transactions_uploaded = $this->uploaded;
                 break;
 
             case 'import':
@@ -94,12 +104,20 @@ Thanks
 			<h2>Membership Import</h2>
             <p style="color: red">Please make sure to have back up your database before proceeding!</p>
 
-            <h3><input type="checkbox" /> Step 1: Upload Users and Transactions History from CSV files</h3>
+            <h3>Step 1: Upload Users and Transactions History from CSV files</h3>
 
 			<p>Please select the <strong>CSV</strong> files you want to upload below</p>
             <form action="<?php echo self::$settings['bsc_imports_page_link'] ?>" method="post" enctype="multipart/form-data">
                 <input type="hidden" name="mode" value="upload" />
                 <table>
+                    <tr>
+                        <td>
+                            <?php if ($this->users_uploaded) echo "$this->users_uploaded users were uploaded!"; ?>
+                        </td>
+                        <td>
+                            <?php if ($this->transactions_uploaded) echo "$this->transactions_uploaded transactions were uploaded"; ?>
+                        </td>
+                    </tr>
                     <tr>
                         <td>
                             <label for="users-csv-file">Users</label>
@@ -115,9 +133,24 @@ Thanks
                 <input type="submit" value="Upload Files" />
             </form>
 
-            <h3><input type="checkbox" /> Step 2: Import Users and Transactions History into BuddyPress and PMPro</h3>
+            <h3>Step 2: Import Users and Transactions History into BuddyPress and PMPro</h3>
 
             <form action="<?php echo self::$settings['bsc_imports_page_link'] ?>" method="post" enctype="multipart/form-data">
+                <table>
+                    <colgroup>
+                        <col style="width:50%">
+                        <col style="width:50%">
+                    </colgroup>
+                    <tr>
+                        <td>
+                            <?php if ($this->total_users_uploaded) echo "$this->total_users_uploaded users"; ?>
+                        </td>
+                        <td>
+                            <?php if ($this->total_transactions_uploaded) echo "$this->total_transactions_uploaded transactions"; ?>
+                        </td>
+                    </tr>
+                </table>
+                <br />
 				<input type="hidden" name="mode" value="import" />
 				<input type="submit" value="Import Users and Transactions" />
                 <br /><br />
@@ -288,6 +321,8 @@ Thanks
         //echo $sql . "\n";
         $wpdb->query($sql);
 
+        $this->uploaded = 0;
+
         while (($data = fgetcsv($handle)) !== FALSE) {
             $values = array();
             for ($i = 0; $i < $field_count; $i++) {
@@ -300,7 +335,7 @@ Thanks
             $values[] = 'NULL';
             $sql = "INSERT into $table values(" . implode(', ', $values) . ');';
             //echo $sql . "\n";
-            $wpdb->query($sql);
+            $wpdb->query($sql) and $this->uploaded++;
         }
         fclose($handle);
         ini_set('auto_detect_line_endings', FALSE);
