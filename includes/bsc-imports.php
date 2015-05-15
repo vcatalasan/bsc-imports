@@ -9,8 +9,8 @@
 class BSC_Imports
 {
 	static $settings;
-	static $users = 'import_users';
-	static $transactions = 'import_transactions';
+	static $users_table = 'import_users';
+	static $transactions_table = 'import_transactions';
     static $upload_error = array(
         UPLOAD_ERR_INI_SIZE => 'The file %s exceeds the maximum file size allowed for uploads. Try splitting your file into smaller sizes ',
         UPLOAD_ERR_PARTIAL => 'The uploaded file %s was only partially uploaded',
@@ -65,9 +65,6 @@ Thanks
 
         $this->users_uploaded = $this->transactions_uploaded = 0;
 
-        $this->total_users_uploaded = 1;
-        $this->total_transactions_uploaded = 1;
-
         $html_message = array();
 
 		//Check whether the curent user have the access or not
@@ -77,8 +74,8 @@ Thanks
 		// if the form is submitted
 		switch ( $_POST['mode'] ) {
             case 'upload':
-                $_FILES['users_csv_file']['name'] and $html_message[] = $this->csv2sql('users_csv_file', 'import_users') and $this->users_uploaded = $this->uploaded;
-                $_FILES['transactions_csv_file']['name'] and $html_message[] = $this->csv2sql('transactions_csv_file', 'import_transactions') and $this->transactions_uploaded = $this->uploaded;
+                $_FILES['users_csv_file']['name'] and $html_message[] = $this->csv2sql('users_csv_file', self::$users_table) and $this->users_uploaded = $this->uploaded;
+                $_FILES['transactions_csv_file']['name'] and $html_message[] = $this->csv2sql('transactions_csv_file', self::$transactions_table) and $this->transactions_uploaded = $this->uploaded;
                 break;
 
             case 'import':
@@ -91,7 +88,10 @@ Thanks
 
         }
 
-		// Get the members import form
+        $this->total_users_uploaded = $this->get_total_users_uploaded();
+        $this->total_transactions_uploaded = $this->get_total_transactions_uploaded();
+
+        // Get the members import form
 		$this->get_form( $html_message );
 	}
 
@@ -631,6 +631,28 @@ Thanks
     function pmpro_import()
     {return 'transactions imported to PMPro';
 
+    }
+
+    function get_total_users_uploaded()
+    {
+        global $wpdb;
+        $table_name = self::$users_table;
+        $count = 0;
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_date is null");
+        }
+        return $count;
+    }
+
+    function get_total_transactions_uploaded()
+    {
+        global $wpdb;
+        $table_name = self::$transactions_table;
+        $count = 0;
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_date is null");
+        }
+        return $count;
     }
 
 	function send_notifiction_to_new_user( $user_id, $user_pass ) {
