@@ -12,13 +12,14 @@ class BSC_Imports
 	static $users = 'import_users';
 	static $transactions = 'import_transactions';
     static $upload_error = array(
-        UPLOAD_ERR_INI_SIZE => 'The uploaded file exceeds the upload_max_filesize directive in php.ini',
-        UPLOAD_ERR_PARTIAL => 'The uploaded file was only partially uploaded',
+        UPLOAD_ERR_INI_SIZE => 'The file %s exceeds the maximum file size allowed for uploads. Try splitting your file into smaller sizes ',
+        UPLOAD_ERR_PARTIAL => 'The uploaded file %s was only partially uploaded',
         UPLOAD_ERR_NO_FILE => 'No file was uploaded'
     );
 
 	function __construct() {
         self::$settings['bsc_imports_page_link'] = 'tools.php?page=bsc_membership_import';
+        self::$upload_error[UPLOAD_ERR_INI_SIZE] .= sprintf(' <= %dM each.', ini_get('upload_max_filesize'));
 		// add admin menu
 		add_action('admin_menu', array($this, 'bp_imports_menu'));
 	}
@@ -253,7 +254,7 @@ Thanks
         // check upload error
         if ($upload_error) {
             $html_message = '<div class="error">';
-            $html_message .= self::$upload_error[$upload_error] ? self::$upload_error[$upload_error] : "Unable to upload file (ERROR=$upload_error)";
+            $html_message .= self::$upload_error[$upload_error] ? sprintf(self::$upload_error[$upload_error], $filename) : "Unable to upload file $filename (ERROR=$upload_error)";
             $html_message .= '</div>';
             return $html_message;
         }
