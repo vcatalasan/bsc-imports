@@ -11,6 +11,10 @@ class BSC_Imports_Plugin extends BSC_Imports
 
 	private static $instance = null;
 
+	static $settings;
+	static $users = 'import_users';
+	static $transactions = 'import_transactions';
+
 	/**
 	 * Return an instance of this class.
 	 *

@@ -406,6 +406,7 @@ Thanks
                 $bp_fields_type[$value->id] = $value->type;
             }
         }
+        /*
         $ext = strtolower( end( explode( '.', $_FILES['csv_file']['name'] ) ) );
 
         if ( 'csv' !== $ext  ) {
@@ -413,224 +414,238 @@ Thanks
             $html_message .= 'Please upload only csv file!!';
             $html_message .= '</div>';
         } else {
-            $avatar = isset( $_POST['avatar'] ) ? $_POST['avatar'] : false;
+        */
+        $avatar = isset( $_POST['avatar'] ) ? $_POST['avatar'] : false;
 
-            // Check whether the admin wants to upload members avatar or not. If yes then
-            // Check whether the avatars directory present or not. If not then create.
-            if ( $avatar ) if ( ! file_exists( AVATARS ) ) mkdir( AVATARS, 0777 );
+        // Check whether the admin wants to upload members avatar or not. If yes then
+        // Check whether the avatars directory present or not. If not then create.
+        if ( $avatar ) if ( ! file_exists( AVATARS ) ) mkdir( AVATARS, 0777 );
 
-            ini_set( 'auto_detect_line_endings', TRUE );
-            $handle = fopen( $_FILES['csv_file']['tmp_name'], 'r' );
-            $first = true;
-            $not_imported = '';
-            $flag = 0;
-            $user_import = 0;
-            $not_import_message = '';
-            $total_rows = $new_user_imported = $old_user_updated = $user_not_imported = 0;
-            while ( ( $row = fgetcsv( $handle, filesize( $_FILES['csv_file']['tmp_name'] ), ',' ) ) !== false ) {
-                $row = array_map( 'trim', $row );
-                // If we are on the first line, get the columns name in headers array
-                if ( $first ) {
-                    $headers = $row;
-                    $first = false;
-                    continue;
+        //ini_set( 'auto_detect_line_endings', TRUE );
+        //$handle = fopen( $_FILES['csv_file']['tmp_name'], 'r' );
+
+        $first = true;
+        $not_imported = '';
+        $flag = 0;
+        $user_import = 0;
+        $not_import_message = '';
+        $total_rows = $new_user_imported = $old_user_updated = $user_not_imported = 0;
+        //while ( ( $row = fgetcsv( $handle, filesize( $_FILES['csv_file']['tmp_name'] ), ',' ) ) !== false ) {
+        for ( $i = 0; $i < $this->total_users_uploaded; $i++) {
+            $row = $this->get_uploaded_user_info($i);
+            //$row = array_map( 'trim', $row );
+            // If we are on the first line, get the columns name in headers array
+            /*
+            if ( $first ) {
+                $headers = $row;
+                $first = false;
+                continue;
+            }
+            */
+            $total_rows++;
+
+            // Separate user data from meta
+            $userdata = $usermeta = $bpmeta = $bp_provided_fields = array();
+
+            foreach ( $row as $ckey => $cvalue ) {
+                if ( empty( $cvalue ) ) continue;
+
+                $column_name = $headers[$ckey];
+
+                $cvalue = utf8_encode( $cvalue );
+
+                if ( strpos( $cvalue, '::' ) ) {
+                    $cvalue = explode( '::', $cvalue );
+                    $cvalue = array_filter( $cvalue, function( $item ) { return !empty( $item[0] ); } );
                 }
-                $total_rows++;
 
-                // Separate user data from meta
-                $userdata = $usermeta = $bpmeta = $bp_provided_fields = array();
-
-                foreach ( $row as $ckey => $cvalue ) {
-                    if ( empty( $cvalue ) ) continue;
-
-                    $column_name = $headers[$ckey];
-
-                    $cvalue = utf8_encode( $cvalue );
-
-                    if ( strpos( $cvalue, '::' ) ) {
-                        $cvalue = explode( '::', $cvalue );
-                        $cvalue = array_filter( $cvalue, function( $item ) { return !empty( $item[0] ); } );
-                    }
-
-                    if ( in_array( $column_name, $wp_userdata_fields ) ) $userdata[$column_name] = $cvalue;
-                    else if ( $bp_status && array_search( $column_name, $bp_xprofile_fields ) ) {
-                        $bp_provided_fields[] = $column_name;
-                        $bpmeta[array_search( $column_name, $bp_xprofile_fields )] = $cvalue;
-                    }
-                    else $usermeta[$column_name] = $cvalue;
+                if ( in_array( $column_name, $wp_userdata_fields ) ) $userdata[$column_name] = $cvalue;
+                else if ( $bp_status && array_search( $column_name, $bp_xprofile_fields ) ) {
+                    $bp_provided_fields[] = $column_name;
+                    $bpmeta[array_search( $column_name, $bp_xprofile_fields )] = $cvalue;
                 }
-                if ( !isset( $_POST['update_user'] ) && $bp_status ) {
-                    $bp_left_fields = array_diff( $bp_xprofile_fields_with_default_value, $bp_provided_fields );
+                else $usermeta[$column_name] = $cvalue;
+            }
+            if ( !isset( $_POST['update_user'] ) && $bp_status ) {
+                $bp_left_fields = array_diff( $bp_xprofile_fields_with_default_value, $bp_provided_fields );
 
-                    if ( count( $bp_left_fields ) ) {
-                        foreach ( $bp_left_fields as $bp_left_field ) {
-                            $bpf_sql = 'SELECT id, type
-                                            FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
-                                            WHERE name="' . $bp_left_field . '"
-                                                AND parent_id=0';
-                            $bp_fields = $wpdb->get_results( $bpf_sql );
+                if ( count( $bp_left_fields ) ) {
+                    foreach ( $bp_left_fields as $bp_left_field ) {
+                        $bpf_sql = 'SELECT id, type
+                                        FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
+                                        WHERE name="' . $bp_left_field . '"
+                                            AND parent_id=0';
+                        $bp_fields = $wpdb->get_results( $bpf_sql );
 
-                            $bpfo_sql = 'SELECT name
-                                             FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
-                                             WHERE parent_id=' . $bp_fields[0]->id . '
-                                                AND is_default_option=1';
-                            $bp_field_options = $wpdb->get_results( $bpfo_sql );
-                            $field_options = array();
+                        $bpfo_sql = 'SELECT name
+                                         FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
+                                         WHERE parent_id=' . $bp_fields[0]->id . '
+                                            AND is_default_option=1';
+                        $bp_field_options = $wpdb->get_results( $bpfo_sql );
+                        $field_options = array();
 
-                            if ( $bp_fields[0]->type == 'selectbox' || $bp_fields[0]->type == 'radio' ) {
-                                $bpmeta[$bp_fields[0]->id] = $bp_field_options[0]->name;
-                            } else {
-                                foreach ( $bp_field_options as $bp_field_option ) {
-                                    $field_options[] = $bp_field_option->name;
-                                }
-                                $bpmeta[$bp_fields[0]->id] = maybe_unserialize( $field_options );
-                            }
-                        }
-                    }
-                }
-                // If no user data, comeout!
-                if ( empty( $userdata ) ) continue;
-
-                // If creating a new user and no password was set, let auto-generate one!
-                if ( empty( $userdata['user_pass'] ) )
-                    $userdata['user_pass'] = wp_generate_password( 12, false );
-
-                $userdata['user_login'] = strtolower( $userdata['user_login'] );
-
-                if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
-                    $error_message .= '<br />user_login or/and user_email needed to import members for row ' . $total_rows;
-                    $user_not_imported++;
-                    continue;
-                }
-                else if ( $userdata['user_login'] == '' )
-                    $userdata['user_login'] = $userdata['user_email'];
-                else if ( $userdata['user_email'] == '' )
-                    $userdata['user_email'] = $userdata['user_login'];
-
-                if ( isset( $_POST['update_user'] ) ) {
-                    //Check whether the user already exist or not
-                    $user_details = get_user_by( 'email', $userdata['user_email'] );
-
-                    //If user already exists then assign ID and update the account.
-                    if ( $user_details ) {
-                        $userdata['ID'] = $user_details->data->ID;
-
-                        if ( isset( $_POST['update_password'] ) ) {
-                            // $userdata['user_pass'] = wp_hash_password($userdata['user_pass']);
+                        if ( $bp_fields[0]->type == 'selectbox' || $bp_fields[0]->type == 'radio' ) {
+                            $bpmeta[$bp_fields[0]->id] = $bp_field_options[0]->name;
                         } else {
-                            unset( $userdata['user_pass'] );
-                        }
-                    }
-                    $user_id = wp_update_user( $userdata );
-                } else {
-                    $user_id = wp_insert_user( $userdata );
-                }
-
-                // Is there an error?
-                if ( is_wp_error( $user_id ) ) {
-                    $flag = 1;
-                    $user_not_imported++;
-                    $not_imported_usernames  .= '<b>' . $userdata['user_login'] . '</b> ' . $user_id->errors['existing_user_login'][0] . '<br />';
-                } else {
-                    //Upload user avatar if permission granted.
-                    if ( $bp_status && $avatar ) {
-                        $image_dir = AVATARS . '/'  . $user_id;
-                        mkdir( $image_dir, 0777 );
-                        $current_time = time();
-                        $destination_bpfull = $image_dir . '/' . $current_time . '-bpfull.jpg';
-                        $destination_bpthumb = $image_dir . '/' . $current_time . '-bpthumb.jpg';
-
-                        if ( array_key_exists( 'avatar', $usermeta ) ) {
-                            $usermeta['avatar'] = str_replace( ' ', '%20', $usermeta['avatar'] );
-                            $bpfull = $bpthumb = wp_get_image_editor( $usermeta['avatar'] );
-
-                            // Handle 404 avatar url
-                            if ( !is_wp_error( $bpfull ) ) {
-                                $bpfull->resize( 150, 150, true );
-                                $bpfull->save( $destination_bpfull );
-                                $bpthumb->resize( 50, 50, true );
-                                $bpthumb->save( $destination_bpthumb );
+                            foreach ( $bp_field_options as $bp_field_option ) {
+                                $field_options[] = $bp_field_option->name;
                             }
+                            $bpmeta[$bp_fields[0]->id] = maybe_unserialize( $field_options );
                         }
                     }
+                }
+            }
+            // If no user data, comeout!
+            if ( empty( $userdata ) ) continue;
 
-                    //User count
-                    if ( array_key_exists( 'ID', $userdata ) ) {
-                        $old_user_updated++;
+            // If creating a new user and no password was set, let auto-generate one!
+            if ( empty( $userdata['user_pass'] ) )
+                $userdata['user_pass'] = wp_generate_password( 12, false );
+
+            $userdata['user_login'] = strtolower( $userdata['user_login'] );
+
+            if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
+                $error_message .= '<br />user_login or/and user_email needed to import members for row ' . $total_rows;
+                $user_not_imported++;
+                continue;
+            }
+            else if ( $userdata['user_login'] == '' )
+                $userdata['user_login'] = $userdata['user_email'];
+            else if ( $userdata['user_email'] == '' )
+                $userdata['user_email'] = $userdata['user_login'];
+
+            if ( isset( $_POST['update_user'] ) ) {
+                //Check whether the user already exist or not
+                $user_details = get_user_by( 'email', $userdata['user_email'] );
+
+                //If user already exists then assign ID and update the account.
+                if ( $user_details ) {
+                    $userdata['ID'] = $user_details->data->ID;
+
+                    if ( isset( $_POST['update_password'] ) ) {
+                        // $userdata['user_pass'] = wp_hash_password($userdata['user_pass']);
                     } else {
-                        $new_user_imported++;
+                        unset( $userdata['user_pass'] );
                     }
+                }
+                $user_id = wp_update_user( $userdata );
+            } else {
+                $user_id = wp_insert_user( $userdata );
+            }
 
-                    $user_import = 1;
+            // Is there an error?
+            if ( is_wp_error( $user_id ) ) {
+                $flag = 1;
+                $user_not_imported++;
+                $not_imported_usernames  .= '<b>' . $userdata['user_login'] . '</b> ' . $user_id->errors['existing_user_login'][0] . '<br />';
+            } else {
+                //Upload user avatar if permission granted.
+                if ( $bp_status && $avatar ) {
+                    $image_dir = AVATARS . '/'  . $user_id;
+                    mkdir( $image_dir, 0777 );
+                    $current_time = time();
+                    $destination_bpfull = $image_dir . '/' . $current_time . '-bpfull.jpg';
+                    $destination_bpthumb = $image_dir . '/' . $current_time . '-bpthumb.jpg';
 
-                    // Insert xprofile field visibility state for user level.
-                    update_user_meta( $user_id, 'bp_xprofile_visibility_levels', $xprofile_fields_visibility );
+                    if ( array_key_exists( 'avatar', $usermeta ) ) {
+                        $usermeta['avatar'] = str_replace( ' ', '%20', $usermeta['avatar'] );
+                        $bpfull = $bpthumb = wp_get_image_editor( $usermeta['avatar'] );
 
-                    if ( isset( $bpmeta ) ) {
-                        //Added an entry in user_meta table for current user meta key is last_activity
-                        bp_update_user_last_activity( $user_id, date( 'Y-m-d H:i:s' ) );
-
-                        foreach ( $bpmeta as $bpmetakeyid => $bpmetavalue ) {
-                            xprofile_set_field_data( $bpmetakeyid, $user_id, $bpmetavalue );
-                        }
-                    }
-
-                    // If no error, let's update the user meta too!
-                    if ( $usermeta ) {
-                        if ( array_key_exists( 'member_group_ids', $usermeta ) ) {
-                            $member_group_ids = $usermeta['member_group_ids'];
-                            unset( $usermeta['member_group_ids'] );
-
-                            if ( is_array( $member_group_ids ) ) {
-                                //Attached members with BuddyPress groups
-                                foreach ( $member_group_ids as $member_group_id ) {
-                                    groups_join_group( $member_group_id, $user_id );
-                                }
-                            } else {
-                                groups_join_group( $member_group_ids, $user_id );
-                            }
-                        }
-
-                        foreach ( $usermeta as $metakey => $metavalue ) {
-                            $metavalue = maybe_unserialize( $metavalue );
-                            update_user_meta( $user_id, $metakey, $metavalue );
-                        }
-                    }
-
-                    if ( isset( $_POST['new_member_notification'] ) ) {
-                        if ( isset( $_POST['custom_notification'] ) ) {
-                            $this->send_notifiction_to_new_user( $user_id, $userdata['user_pass'] );
-                        } else {
-                            wp_new_user_notification( $user_id, $userdata['user_pass'] );
+                        // Handle 404 avatar url
+                        if ( !is_wp_error( $bpfull ) ) {
+                            $bpfull->resize( 150, 150, true );
+                            $bpfull->save( $destination_bpfull );
+                            $bpthumb->resize( 50, 50, true );
+                            $bpthumb->save( $destination_bpthumb );
                         }
                     }
                 }
 
-                if ( $user_import === 0 && $user_import === 0 )
-                    $not_import_message = 'No users imported.<br />';
-                $not_import_message .= $not_imported_usernames;
+                //User count
+                if ( array_key_exists( 'ID', $userdata ) ) {
+                    $old_user_updated++;
+                } else {
+                    $new_user_imported++;
+                }
 
-                if ( $flag === 1 && $user_import === 1 ) {
-                    $not_import_message = 'Following user(s) are not imported as they are already registered in your website:<br />';
-                    $not_import_message .= $not_imported_usernames;
+                $user_import = 1;
+
+                // Insert xprofile field visibility state for user level.
+                update_user_meta( $user_id, 'bp_xprofile_visibility_levels', $xprofile_fields_visibility );
+
+                if ( isset( $bpmeta ) ) {
+                    //Added an entry in user_meta table for current user meta key is last_activity
+                    bp_update_user_last_activity( $user_id, date( 'Y-m-d H:i:s' ) );
+
+                    foreach ( $bpmeta as $bpmetakeyid => $bpmetavalue ) {
+                        xprofile_set_field_data( $bpmetakeyid, $user_id, $bpmetavalue );
+                    }
+                }
+
+                // If no error, let's update the user meta too!
+                if ( $usermeta ) {
+                    if ( array_key_exists( 'member_group_ids', $usermeta ) ) {
+                        $member_group_ids = $usermeta['member_group_ids'];
+                        unset( $usermeta['member_group_ids'] );
+
+                        if ( is_array( $member_group_ids ) ) {
+                            //Attached members with BuddyPress groups
+                            foreach ( $member_group_ids as $member_group_id ) {
+                                groups_join_group( $member_group_id, $user_id );
+                            }
+                        } else {
+                            groups_join_group( $member_group_ids, $user_id );
+                        }
+                    }
+
+                    foreach ( $usermeta as $metakey => $metavalue ) {
+                        $metavalue = maybe_unserialize( $metavalue );
+                        update_user_meta( $user_id, $metakey, $metavalue );
+                    }
+                }
+
+                if ( isset( $_POST['new_member_notification'] ) ) {
+                    if ( isset( $_POST['custom_notification'] ) ) {
+                        $this->send_notifiction_to_new_user( $user_id, $userdata['user_pass'] );
+                    } else {
+                        wp_new_user_notification( $user_id, $userdata['user_pass'] );
+                    }
                 }
             }
 
-            $html_message = '<div class="updated">';
-            $html_message .= $not_import_message;
-            $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
-            $html_message .= '<p>Total users in CSV: ' . $total_rows . '</p>';
-            $html_message .= '<p>Total new users imported: '. $new_user_imported . '</p>';
-            $html_message .= '<p>Total old users updated: '. $old_user_updated . '</p>';
-            $html_message .= '<p style="color: #ff0000;">Total users not imported: ' . $user_not_imported . '</p>';
-            $html_message .= "</div>";
+            if ( $user_import === 0 && $user_import === 0 )
+                $not_import_message = 'No users imported.<br />';
+            $not_import_message .= $not_imported_usernames;
+
+            if ( $flag === 1 && $user_import === 1 ) {
+                $not_import_message = 'Following user(s) are not imported as they are already registered in your website:<br />';
+                $not_import_message .= $not_imported_usernames;
+            }
         }
+
+        $html_message = '<div class="updated">';
+        $html_message .= $not_import_message;
+        $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
+        $html_message .= '<p>Total users in CSV: ' . $total_rows . '</p>';
+        $html_message .= '<p>Total new users imported: '. $new_user_imported . '</p>';
+        $html_message .= '<p>Total old users updated: '. $old_user_updated . '</p>';
+        $html_message .= '<p style="color: #ff0000;">Total users not imported: ' . $user_not_imported . '</p>';
+        $html_message .= "</div>";
+        //}
 
     }
 
     function pmpro_import()
     {return 'transactions imported to PMPro';
 
+    }
+
+    function get_uploaded_user_info($row_offset = 0)
+    {
+        global $wpdb;
+        $table_name = self::$users_table;
+        $query = "SELECT * FROM $table_name WHERE import_date is null";
+        return $wpdb->get_row($query, ARRAY_A, $row_offset);
     }
 
     function get_total_users_uploaded()
