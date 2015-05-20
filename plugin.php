@@ -11,8 +11,6 @@ class BSC_Imports_Plugin extends BSC_Imports
 
 	private static $instance = null;
 
-	static $settings;
-
 	/**
 	 * Return an instance of this class.
 	 *

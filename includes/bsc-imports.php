@@ -8,13 +8,17 @@
 
 class BSC_Imports
 {
-	static $users_table = 'import_users';
+    static $settings;
+
+    static $users_table = 'import_users';
 	static $transactions_table = 'import_transactions';
+
     static $upload_error = array(
         UPLOAD_ERR_INI_SIZE => 'The file %s exceeds the maximum file size allowed for uploads. Try splitting your file into smaller sizes ',
         UPLOAD_ERR_PARTIAL => 'The uploaded file %s was only partially uploaded',
         UPLOAD_ERR_NO_FILE => 'No file was uploaded'
     );
+
     static $email_template = 'Hello {USERNAME}
 
 Username: {USERNAME}
@@ -80,6 +84,9 @@ Thanks
                 break;
 
             case 'import':
+                $this->total_users_uploaded = $this->get_total_users_uploaded();
+                $this->total_transactions_uploaded = $this->get_total_transactions_uploaded();
+
                 $html_message[] = $this->buddypress_import() and $html_message[] = $this->pmpro_import();
                 break;
 
@@ -349,7 +356,7 @@ Thanks
 
     function normalize_field_name($f, $max_length = 0)
     {
-        static $normalize = function($f, $max_length) {
+        $normalize = function($f, $max_length) {
             $f = strtolower(trim($f));
             $f and $f = preg_replace('/[^0-9a-z]/', '_', $f);
             $f and $max_length and $f = substr($f, 0, $max_length);
@@ -364,7 +371,7 @@ Thanks
     }
 
     function buddypress_import()
-    {return 'users imported to BuddyPress';
+    {
         global $wpdb;
 
         $error_message = $not_imported_usernames = array();
@@ -423,42 +430,20 @@ Thanks
                 $bp_fields_type[$value->id] = $value->type;
             }
         }
-        /*
-        $ext = strtolower( end( explode( '.', $_FILES['csv_file']['name'] ) ) );
 
-        if ( 'csv' !== $ext  ) {
-            $html_message = '<div class="updated">';
-            $html_message .= 'Please upload only csv file!!';
-            $html_message .= '</div>';
-        } else {
-        */
         $avatar = isset( $_POST['avatar'] ) ? $_POST['avatar'] : false;
 
         // Check whether the admin wants to upload members avatar or not. If yes then
         // Check whether the avatars directory present or not. If not then create.
         if ( $avatar ) if ( ! file_exists( AVATARS ) ) mkdir( AVATARS, 0777 );
 
-        //ini_set( 'auto_detect_line_endings', TRUE );
-        //$handle = fopen( $_FILES['csv_file']['tmp_name'], 'r' );
-
-        $first = true;
         $not_imported = '';
         $flag = 0;
         $user_import = 0;
         $not_import_message = '';
         $total_rows = $new_user_imported = $old_user_updated = $user_not_imported = 0;
-        //while ( ( $row = fgetcsv( $handle, filesize( $_FILES['csv_file']['tmp_name'] ), ',' ) ) !== false ) {
         for ( $i = 0; $i < $this->total_users_uploaded; $i++) {
             $row = $this->get_uploaded_user_info($i);
-            //$row = array_map( 'trim', $row );
-            // If we are on the first line, get the columns name in headers array
-            /*
-            if ( $first ) {
-                $headers = $row;
-                $first = false;
-                continue;
-            }
-            */
             $total_rows++;
 
             // Separate user data from meta
@@ -646,13 +631,13 @@ Thanks
         $html_message = '<div class="updated">';
         $html_message .= $not_import_message;
         $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
-        $html_message .= '<p>Total users in CSV: ' . $total_rows . '</p>';
+        $html_message .= '<p>Total users to import: ' . $total_rows . '</p>';
         $html_message .= '<p>Total new users imported: '. $new_user_imported . '</p>';
         $html_message .= '<p>Total old users updated: '. $old_user_updated . '</p>';
         $html_message .= '<p style="color: #ff0000;">Total users not imported: ' . $user_not_imported . '</p>';
         $html_message .= "</div>";
-        //}
 
+        return $html_message;
     }
 
     function pmpro_import()
@@ -662,20 +647,18 @@ Thanks
 
     function user_info_mapping(array $import)
     {
-        $user_info = count($import) ? array(
+        $user_info = count($import) ? array_merge(array(
             //wp_user fields
             'user_login' => $import['email'],
             'user_pass' => $import[''],
             'user_nicename' => $import[''],
-            'user_email' => $import[''],
+            'user_email' => $import['email'],
             'user_url' => $import[''],
             'user_registered' => $import[''],
-            'user_activation_key',
-            'user_status',
-            'display_name',
-            //buddypress xprofile fields
-            ''
-        ) : array();
+            'user_activation_key' => $import[''],
+            'user_status' => $import[''],
+            'display_name' => $import['']
+        ), $import) : array();
         return $user_info;
     }
 
@@ -684,7 +667,7 @@ Thanks
         global $wpdb;
         $table_name = self::$users_table;
         $query = "SELECT * FROM $table_name WHERE import_date is null";
-        return apply_filter('user_info_mapping', $wpdb->get_row($query, ARRAY_A, $row_offset));
+        return apply_filters('user_info_mapping', $wpdb->get_row($query, ARRAY_A, $row_offset));
     }
 
     function get_total_users_uploaded()
