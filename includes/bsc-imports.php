@@ -8,7 +8,6 @@
 
 class BSC_Imports
 {
-	static $settings;
 	static $users_table = 'import_users';
 	static $transactions_table = 'import_transactions';
     static $upload_error = array(
@@ -36,6 +35,8 @@ Thanks
 
 		// add admin menu
 		add_action('admin_menu', array($this, 'bp_imports_menu'));
+        add_filter('user_info_mapping', array($this, 'user_info_mapping'));
+        add_filter('normalize_field_name', array($this, 'normalize_field_name'), 10, 2);
 	}
 
 	function bp_imports_menu() {
@@ -307,7 +308,7 @@ Thanks
             $f = strtolower(trim($data[$i]));
             if ($f) {
                 // normalize the field name, strip to 20 chars if too long
-                $f = substr(preg_replace('/[^0-9a-z]/', '_', $f), 0, 20);
+                $f = apply_filters('normalize_field_name', $f, 20);
                 // derive type from field name
                 $t = preg_match('/date/i', $f) ? 'DATETIME DEFAULT NULL' : 'VARCHAR(50)';
                 $field_count++;
@@ -344,6 +345,22 @@ Thanks
         $html_message .= "$filename has been uploaded to $table table";
         $html_message .= '</div>';
         return $html_message;
+    }
+
+    function normalize_field_name($f, $max_length = 0)
+    {
+        static $normalize = function($f, $max_length) {
+            $f = strtolower(trim($f));
+            $f and $f = preg_replace('/[^0-9a-z]/', '_', $f);
+            $f and $max_length and $f = substr($f, 0, $max_length);
+            return $f;
+        };
+
+        if (is_array($f))
+            foreach ($f as $i => $name) { $f[$i] = $normalize($name, $max_length); }
+        else
+            $f = $normalize($f, $max_length);
+        return $f;
     }
 
     function buddypress_import()
@@ -386,7 +403,7 @@ Thanks
                                 WHERE type
                                     IN ("checkbox", "multiselectbox", "selectbox", "radio")
                                     AND parent_id=0';
-            $bp_xprofile_fields_with_default_value = $wpdb->get_col( $bpxfwdv_sql );
+            $bp_xprofile_fields_with_default_value = apply_filters('normalize_field_name', $wpdb->get_col( $bpxfwdv_sql ), 20);
 
             // Get xprofile field visibility
             $bp_fields_visibility = $wpdb->get_results( 'SELECT object_id, meta_value
@@ -402,7 +419,7 @@ Thanks
 
             //Create an array of BP fields
             foreach ( $bp_extra_fields as $value ) {
-                $bp_xprofile_fields[$value->id] = $value->name;
+                $bp_xprofile_fields[$value->id] = apply_filters('normalize_field_name', $value->name, 20);
                 $bp_fields_type[$value->id] = $value->type;
             }
         }
@@ -450,7 +467,9 @@ Thanks
             foreach ( $row as $ckey => $cvalue ) {
                 if ( empty( $cvalue ) ) continue;
 
-                $column_name = $headers[$ckey];
+                //$column_name = $headers[$ckey];
+                $column_name = $ckey;
+                $bp_field_id = array_search( $column_name, $bp_xprofile_fields );
 
                 $cvalue = utf8_encode( $cvalue );
 
@@ -460,9 +479,9 @@ Thanks
                 }
 
                 if ( in_array( $column_name, $wp_userdata_fields ) ) $userdata[$column_name] = $cvalue;
-                else if ( $bp_status && array_search( $column_name, $bp_xprofile_fields ) ) {
+                else if ( $bp_status && $bp_field_id ) {
                     $bp_provided_fields[] = $column_name;
-                    $bpmeta[array_search( $column_name, $bp_xprofile_fields )] = $cvalue;
+                    $bpmeta[$bp_field_id] = $cvalue;
                 }
                 else $usermeta[$column_name] = $cvalue;
             }
@@ -471,9 +490,10 @@ Thanks
 
                 if ( count( $bp_left_fields ) ) {
                     foreach ( $bp_left_fields as $bp_left_field ) {
+                        $bp_field_id = array_search( $bp_left_field, $bp_xprofile_fields );
                         $bpf_sql = 'SELECT id, type
                                         FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
-                                        WHERE name="' . $bp_left_field . '"
+                                        WHERE id=' . $bp_field_id . '
                                             AND parent_id=0';
                         $bp_fields = $wpdb->get_results( $bpf_sql );
 
@@ -640,12 +660,31 @@ Thanks
 
     }
 
+    function user_info_mapping(array $import)
+    {
+        $user_info = count($import) ? array(
+            //wp_user fields
+            'user_login' => $import['email'],
+            'user_pass' => $import[''],
+            'user_nicename' => $import[''],
+            'user_email' => $import[''],
+            'user_url' => $import[''],
+            'user_registered' => $import[''],
+            'user_activation_key',
+            'user_status',
+            'display_name',
+            //buddypress xprofile fields
+            ''
+        ) : array();
+        return $user_info;
+    }
+
     function get_uploaded_user_info($row_offset = 0)
     {
         global $wpdb;
         $table_name = self::$users_table;
         $query = "SELECT * FROM $table_name WHERE import_date is null";
-        return $wpdb->get_row($query, ARRAY_A, $row_offset);
+        return apply_filter('user_info_mapping', $wpdb->get_row($query, ARRAY_A, $row_offset));
     }
 
     function get_total_users_uploaded()
