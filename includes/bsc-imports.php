@@ -41,6 +41,10 @@ Thanks
 		add_action('admin_menu', array($this, 'bp_imports_menu'));
         add_filter('user_info_mapping', array($this, 'user_info_mapping'));
         add_filter('normalize_field_name', array($this, 'normalize_field_name'), 10, 2);
+
+        // add ajax calls
+        add_action('wp_ajax_import_users', array($this, 'import_users'));
+        add_action('wp_ajax_import_transactions', array($this, 'import_transactions'));
 	}
 
 	function bp_imports_menu() {
@@ -79,15 +83,15 @@ Thanks
 		// if the form is submitted
 		switch ( $_POST['mode'] ) {
             case 'upload':
-                $_FILES['users_csv_file']['name'] and $html_message[] = $this->csv2sql('users_csv_file', self::$users_table) and $this->users_uploaded = $this->uploaded;
-                $_FILES['transactions_csv_file']['name'] and $html_message[] = $this->csv2sql('transactions_csv_file', self::$transactions_table) and $this->transactions_uploaded = $this->uploaded;
+                $_FILES['users_csv_file']['name'] and $html_message['users_upload'] = $this->csv2sql('users_csv_file', self::$users_table) and $this->users_uploaded = $this->uploaded;
+                $_FILES['transactions_csv_file']['name'] and $html_message['transactions_upload'] = $this->csv2sql('transactions_csv_file', self::$transactions_table) and $this->transactions_uploaded = $this->uploaded;
                 break;
 
             case 'import':
                 $this->total_users_uploaded = $this->get_total_users_uploaded();
                 $this->total_transactions_uploaded = $this->get_total_transactions_uploaded();
 
-                $html_message[] = $this->buddypress_import() and $html_message[] = $this->pmpro_import();
+                $html_message['users_import'] = $this->buddypress_import() and $html_message['transactions_import'] = $this->pmpro_import();
                 break;
 
             case 'save-email-template':
@@ -104,15 +108,19 @@ Thanks
 	}
 
 
-	function get_form( $html_message ) {
+	function get_form(array $html_message) {
 		?>
 		<div class="wrap">
-			<?php foreach($html_message as $message) echo "<p>$message</p>"; ?>
 			<div id="icon-users" class="icon32"><br /></div>
 			<h2>Membership Import</h2>
             <p style="color: red">Please make sure to have back up your database before proceeding!</p>
 
             <h3>Step 1: Upload Users and Transactions History from CSV files</h3>
+
+            <?php
+            if ($html_message['users_upload']) echo $html_message['users_upload'];
+            if ($html_message['transactions_upload']) echo $html_message['transactions_upload'];
+            ?>
 
 			<p>Please select the <strong>CSV</strong> files you want to upload below</p>
             <form action="<?php echo self::$settings['bsc_imports_page_link'] ?>" method="post" enctype="multipart/form-data">
@@ -143,7 +151,10 @@ Thanks
 
             <h3>Step 2: Import Users and Transactions History into BuddyPress and PMPro</h3>
 
-            <form action="<?php echo self::$settings['bsc_imports_page_link'] ?>" method="post" enctype="multipart/form-data">
+            <?php if ($html_message['users_import']) echo $html_message['users_import']; ?>
+            <?php if ($html_message['transactions_import']) echo $html_message['transactions_import']; ?>
+
+            <form action="" method="post" enctype="multipart/form-data">
                 <table>
                     <colgroup>
                         <col style="width:50%">
@@ -160,7 +171,8 @@ Thanks
                 </table>
                 <br />
 				<input type="hidden" name="mode" value="import" />
-				<input type="submit" value="Import Users and Transactions" />
+                <input type="hidden" name="upload_id" value="1" />
+				<input id="import-users" type="submit" value="Import Users and Transactions" />
                 <br /><br />
 				<table>
 					<tr valign="top">
@@ -247,6 +259,28 @@ Thanks
 				</table>
 			</form>
 		</div>
+        <script type="text/javascript">
+            jQuery(document).ready( function($) {
+
+                var options = {
+                    data: {action: 'import_users'},
+                    url: '<?php echo admin_url( 'admin-ajax.php'); ?>',
+                    success: function (responseText, statusText, xhr, $form) {
+                        if (responseText) {
+                            var response = jQuery.parseJSON(responseText);
+                            console.log(response);
+                            //response['tag'] && $(response['html']).insertBefore(response['tag']);
+                        }
+                    }
+                };
+
+                $('input#import-users').click(function(e) {alert('import-users')
+                    e.preventDefault();
+                    form = $(this).parents('form');
+                    $(form).ajaxSubmit(options);
+                })
+            }
+        </script>
 	<?php
 	}
 
@@ -325,7 +359,8 @@ Thanks
         //add extra fields for tracking
         $fields[] = "`upload_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
         $fields[] = "`import_date` DATETIME DEFAULT NULL";
-        $sql = "CREATE TABLE IF NOT EXISTS $table (" . implode(', ', $fields) . ');';
+        $fields[] = "`upload_id` BIGINT(20) NOT NULL AUTO_INCREMENT";
+        $sql = "CREATE TABLE IF NOT EXISTS $table (" . implode(', ', $fields) . ', PRIMARY KEY(`upload_id`));';
         //echo $sql . "\n";
         $wpdb->query($sql);
 
@@ -338,9 +373,10 @@ Thanks
                 preg_match('/TIMESTAMP|DATETIME/', $fields[$i]) and $v = date('Y-m-d H:i:s', strtotime($v));
                 $values[] = '\'' . addslashes($v) . '\'';
             }
-            //set upload and import date
-            $values[] = '\'' . addslashes(date('Y-m-d H:i:s')) . '\'';
-            $values[] = 'NULL';
+            //set default value
+            $values[] = '\'' . addslashes(date('Y-m-d H:i:s')) . '\''; // upload date
+            $values[] = 'NULL'; // import_date
+            $values[] = 'NULL'; // upload_id
             $sql = "INSERT into $table values(" . implode(', ', $values) . ');';
             //echo $sql . "\n";
             $wpdb->query($sql) and $this->uploaded++;
@@ -372,12 +408,25 @@ Thanks
 
     function buddypress_import()
     {
+        $html_message = '<div class="updated">';
+        $html_message .= $not_import_message;
+        $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
+        $html_message .= '<p>Total new users imported: '. $new_user_imported . '</p>';
+        $html_message .= '<p>Total old users updated: '. $old_user_updated . '</p>';
+        $html_message .= '<p style="color: #ff0000;">Total users not imported: ' . $user_not_imported . '</p>';
+        $html_message .= "</div>";
+        return $html_message;
+    }
+
+    function import_users()
+    {
         global $wpdb;
 
-        $error_message = $not_imported_usernames = array();
+        $flag = 0;
+        $user_import = 0;
 
         $bp_status = is_plugin_active( 'buddypress/bp-loader.php' );
-        if ( $bp_status ) {
+        if ($bp_status) {
             // Check whether the avatars directory present or not. If not then create.
             $bp_plugin_details = get_plugin_data( ABSPATH .'wp-content/plugins/buddypress/bp-loader.php' );
             $bp_plugin_version = $bp_plugin_details['Version'];
@@ -387,7 +436,10 @@ Thanks
             } else {
                 define( 'AVATARS', ABSPATH . 'wp-content/uploads/avatars' );
             }
+        } else {
+            $this->return_result(array($user_import, 'BuddyPress plugin is not active!'));
         }
+
         // User data fields list used to differentiate with user meta
         $wp_userdata_fields = array(
             'user_login', 'user_pass',
@@ -399,36 +451,34 @@ Thanks
             'role'
         );
 
-        if ( $bp_status ) {
-            //Get the BP extra fields id name name
-            $bp_xprofile_fields = $bp_xprofile_fields_with_default_value = array();
+        //Get the BP extra fields id name name
+        $bp_xprofile_fields = $bp_xprofile_fields_with_default_value = array();
 
-            $bp_extra_fields = $wpdb->get_results( 'SELECT id, type, name FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields' );
+        $bp_extra_fields = $wpdb->get_results( 'SELECT id, type, name FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields' );
 
-            $bpxfwdv_sql = 'SELECT name
-                                FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
-                                WHERE type
-                                    IN ("checkbox", "multiselectbox", "selectbox", "radio")
-                                    AND parent_id=0';
-            $bp_xprofile_fields_with_default_value = apply_filters('normalize_field_name', $wpdb->get_col( $bpxfwdv_sql ), 20);
+        $bpxfwdv_sql = 'SELECT name
+                            FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
+                            WHERE type
+                                IN ("checkbox", "multiselectbox", "selectbox", "radio")
+                                AND parent_id=0';
+        $bp_xprofile_fields_with_default_value = apply_filters('normalize_field_name', $wpdb->get_col( $bpxfwdv_sql ), 20);
 
-            // Get xprofile field visibility
-            $bp_fields_visibility = $wpdb->get_results( 'SELECT object_id, meta_value
-                                                                FROM ' . $wpdb->base_prefix . 'bp_xprofile_meta
-                                                                WHERE meta_key = "default_visibility"'
-            );
+        // Get xprofile field visibility
+        $bp_fields_visibility = $wpdb->get_results( 'SELECT object_id, meta_value
+                                                            FROM ' . $wpdb->base_prefix . 'bp_xprofile_meta
+                                                            WHERE meta_key = "default_visibility"'
+        );
 
-            $xprofile_fields_visibility = array( 1 => 'public' );
+        $xprofile_fields_visibility = array( 1 => 'public' );
 
-            foreach ( $bp_fields_visibility as $bp_field_visibility ) {
-                $xprofile_fields_visibility[$bp_field_visibility->object_id] = $bp_field_visibility->meta_value;
-            }
+        foreach ( $bp_fields_visibility as $bp_field_visibility ) {
+            $xprofile_fields_visibility[$bp_field_visibility->object_id] = $bp_field_visibility->meta_value;
+        }
 
-            //Create an array of BP fields
-            foreach ( $bp_extra_fields as $value ) {
-                $bp_xprofile_fields[$value->id] = apply_filters('normalize_field_name', $value->name, 20);
-                $bp_fields_type[$value->id] = $value->type;
-            }
+        //Create an array of BP fields
+        foreach ( $bp_extra_fields as $value ) {
+            $bp_xprofile_fields[$value->id] = apply_filters('normalize_field_name', $value->name, 20);
+            $bp_fields_type[$value->id] = $value->type;
         }
 
         $avatar = isset( $_POST['avatar'] ) ? $_POST['avatar'] : false;
@@ -437,14 +487,8 @@ Thanks
         // Check whether the avatars directory present or not. If not then create.
         if ( $avatar ) if ( ! file_exists( AVATARS ) ) mkdir( AVATARS, 0777 );
 
-        $not_imported = '';
-        $flag = 0;
-        $user_import = 0;
-        $not_import_message = '';
-        $total_rows = $new_user_imported = $old_user_updated = $user_not_imported = 0;
-        for ( $i = 0; $i < $this->total_users_uploaded; $i++) {
-            $row = $this->get_uploaded_user_info($i);
-            $total_rows++;
+        $row = $this->get_uploaded_user_info($_POST['upload_id']);
+        if (!empty($row)) {
 
             // Separate user data from meta
             $userdata = $usermeta = $bpmeta = $bp_provided_fields = array();
@@ -501,7 +545,9 @@ Thanks
                 }
             }
             // If no user data, comeout!
-            if ( empty( $userdata ) ) continue;
+            if ( empty( $userdata ) ) {
+                $this->return_result(array($user_import, 'no user data'));
+            }
 
             // If creating a new user and no password was set, let auto-generate one!
             if ( empty( $userdata['user_pass'] ) )
@@ -510,9 +556,7 @@ Thanks
             $userdata['user_login'] = strtolower( $userdata['user_login'] );
 
             if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
-                $error_message .= '<br />user_login or/and user_email needed to import members for row ' . $total_rows;
-                $user_not_imported++;
-                continue;
+                $this->return_result(array($user_import, 'user_login or/and user_email needed to import member'));
             }
             else if ( $userdata['user_login'] == '' )
                 $userdata['user_login'] = $userdata['user_email'];
@@ -540,10 +584,13 @@ Thanks
 
             // Is there an error?
             if ( is_wp_error( $user_id ) ) {
-                $flag = 1;
-                $user_not_imported++;
-                $not_imported_usernames  .= '<b>' . $userdata['user_login'] . '</b> ' . $user_id->errors['existing_user_login'][0] . '<br />';
+                $this->return_result(array($user_import, $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0]));
             } else {
+                $user_import = 1;
+
+                //Update user import table
+                $this->update_imported_user_info($_POST['upload_id']);
+
                 //Upload user avatar if permission granted.
                 if ( $bp_status && $avatar ) {
                     $image_dir = AVATARS . '/'  . $user_id;
@@ -565,15 +612,6 @@ Thanks
                         }
                     }
                 }
-
-                //User count
-                if ( array_key_exists( 'ID', $userdata ) ) {
-                    $old_user_updated++;
-                } else {
-                    $new_user_imported++;
-                }
-
-                $user_import = 1;
 
                 // Insert xprofile field visibility state for user level.
                 update_user_meta( $user_id, 'bp_xprofile_visibility_levels', $xprofile_fields_visibility );
@@ -617,32 +655,28 @@ Thanks
                     }
                 }
             }
-
-            if ( $user_import === 0 && $user_import === 0 )
-                $not_import_message = 'No users imported.<br />';
-            $not_import_message .= $not_imported_usernames;
-
-            if ( $flag === 1 && $user_import === 1 ) {
-                $not_import_message = 'Following user(s) are not imported as they are already registered in your website:<br />';
-                $not_import_message .= $not_imported_usernames;
-            }
+            $this->return_result(array($user_import,'user imported'));
         }
+        $this->return_result(array($user_import, 'no user data to import'));
+    }
 
-        $html_message = '<div class="updated">';
-        $html_message .= $not_import_message;
-        $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
-        $html_message .= '<p>Total users to import: ' . $total_rows . '</p>';
-        $html_message .= '<p>Total new users imported: '. $new_user_imported . '</p>';
-        $html_message .= '<p>Total old users updated: '. $old_user_updated . '</p>';
-        $html_message .= '<p style="color: #ff0000;">Total users not imported: ' . $user_not_imported . '</p>';
-        $html_message .= "</div>";
-
-        return $html_message;
+    function return_result($message)
+    {
+        header('Content-Type: application/json');
+        echo json_encode($message);
+        exit;
     }
 
     function pmpro_import()
-    {return 'transactions imported to PMPro';
-
+    {
+        $html_message = '<div class="updated">';
+        $html_message .= $not_import_message;
+        $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
+        $html_message .= '<p>Total new transactions imported: '. $new_transactions_imported . '</p>';
+        $html_message .= '<p>Total old transactions updated: '. $old_transactions_updated . '</p>';
+        $html_message .= '<p style="color: #ff0000;">Total transactions not imported: ' . $transactions_not_imported . '</p>';
+        $html_message .= "</div>";
+        return $html_message;
     }
 
     function user_info_mapping(array $import)
@@ -662,12 +696,29 @@ Thanks
         return $user_info;
     }
 
-    function get_uploaded_user_info($row_offset = 0)
+    function update_imported_user_info($upload_id)
     {
         global $wpdb;
         $table_name = self::$users_table;
-        $query = "SELECT * FROM $table_name WHERE import_date is null";
-        return apply_filters('user_info_mapping', $wpdb->get_row($query, ARRAY_A, $row_offset));
+        $current_date = date('Y-m-d H:i:s');
+        $update= "UPDATE $table_name SET (import_date = '$current_date') WHERE upload_id = $upload_id";
+        return $wpdb->query($update);
+    }
+
+    function get_uploaded_user_info($upload_id)
+    {
+        global $wpdb;
+        $table_name = self::$users_table;
+        $query = "SELECT * FROM $table_name WHERE upload_id = $upload_id";
+        return apply_filters('user_info_mapping', $wpdb->get_row($query, ARRAY_A));
+    }
+
+    function get_uploaded_user_transactions($email, $row_offset = 0)
+    {
+        global $wpdb;
+        $table_name = self::$transactions_table;
+        $query = "SELECT * FROM $table_name WHERE email = $email ORDER BY transaction_date ASC";
+        return apply_filters('transaction_info_mapping', $wpdb->get_row($query, ARRAY_A, $row_offset));
     }
 
     function get_total_users_uploaded()
@@ -681,13 +732,14 @@ Thanks
         return $count;
     }
 
-    function get_total_transactions_uploaded()
+    function get_total_transactions_uploaded($email = null)
     {
         global $wpdb;
         $table_name = self::$transactions_table;
         $count = 0;
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
-            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_date is null");
+            $email and $mail = " AND email = $email";
+            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_date is null $email");
         }
         return $count;
     }
