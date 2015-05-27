@@ -88,10 +88,7 @@ Thanks
                 break;
 
             case 'import':
-                $this->total_users_uploaded = $this->get_total_users_uploaded();
-                $this->total_transactions_uploaded = $this->get_total_transactions_uploaded();
-
-                $html_message['users_import'] = $this->buddypress_import() and $html_message['transactions_import'] = $this->pmpro_import();
+                $html_message['start_import'] = $this->start_import();
                 break;
 
             case 'save-email-template':
@@ -123,7 +120,7 @@ Thanks
             ?>
 
 			<p>Please select the <strong>CSV</strong> files you want to upload below</p>
-            <form action="<?php echo self::$settings['bsc_imports_page_link'] ?>" method="post" enctype="multipart/form-data">
+            <form action="" method="post" enctype="multipart/form-data">
                 <input type="hidden" name="mode" value="upload" />
                 <table>
                     <tr>
@@ -151,8 +148,7 @@ Thanks
 
             <h3>Step 2: Import Users and Transactions History into BuddyPress and PMPro</h3>
 
-            <?php if ($html_message['users_import']) echo $html_message['users_import']; ?>
-            <?php if ($html_message['transactions_import']) echo $html_message['transactions_import']; ?>
+            <?php if ($html_message['start_import']) echo $html_message['start_import']; ?>
 
             <form action="" method="post" enctype="multipart/form-data">
                 <table>
@@ -171,8 +167,7 @@ Thanks
                 </table>
                 <br />
 				<input type="hidden" name="mode" value="import" />
-                <input type="hidden" name="upload_id" value="1" />
-				<input id="import-users" type="submit" value="Import Users and Transactions" />
+				<input type="submit" value="Import Users and Transactions" />
                 <br /><br />
 				<table>
 					<tr valign="top">
@@ -233,7 +228,7 @@ Thanks
 					</tr>
 				</table>
 			</form>
-			<form action="<?php echo self::$settings['bsc_imports_page_link'] ?>" method="post" enctype="multipart/form-data">
+			<form action="" method="post" enctype="multipart/form-data">
                 <input type="hidden" name="mode" value="save-email-template" />
                 <table>
 					<tr>
@@ -259,28 +254,6 @@ Thanks
 				</table>
 			</form>
 		</div>
-        <script type="text/javascript">
-            jQuery(document).ready( function($) {
-
-                var options = {
-                    data: {action: 'import_users'},
-                    url: '<?php echo admin_url( 'admin-ajax.php'); ?>',
-                    success: function (responseText, statusText, xhr, $form) {
-                        if (responseText) {
-                            var response = jQuery.parseJSON(responseText);
-                            console.log(response);
-                            //response['tag'] && $(response['html']).insertBefore(response['tag']);
-                        }
-                    }
-                };
-
-                $('input#import-users').click(function(e) {alert('import-users')
-                    e.preventDefault();
-                    form = $(this).parents('form');
-                    $(form).ajaxSubmit(options);
-                })
-            }
-        </script>
 	<?php
 	}
 
@@ -406,23 +379,89 @@ Thanks
         return $f;
     }
 
-    function buddypress_import()
+    function start_import()
     {
-        $html_message = '<div class="updated">';
-        $html_message .= $not_import_message;
-        $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
-        $html_message .= '<p>Total new users imported: '. $new_user_imported . '</p>';
-        $html_message .= '<p>Total old users updated: '. $old_user_updated . '</p>';
-        $html_message .= '<p style="color: #ff0000;">Total users not imported: ' . $user_not_imported . '</p>';
-        $html_message .= "</div>";
-        return $html_message;
+        ob_start();
+        ?>
+        <div class="updated">
+            <p>Total new users imported: <span id="total-users-imported">0</span></p>
+            <p>Total old users updated: <span id="total-users-updated">0</span></p>
+            <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
+            <form id="import-users-form" action="" method="post">
+                <input id="upload-id" type="hidden" name="upload_id" value="1" />
+                <input id="import-users-button" type="submit" value="Start" />
+            </form>
+        </div>
+        <script type="text/javascript">
+            jQuery(document).ready(function($) {
+                var start = true;
+                var options = {
+                    data: {action: 'import_users'},
+                    url: '<?php echo admin_url( 'admin-ajax.php') ?>',
+                    method: 'post',
+                    success: function (responseText, statusText, xhr, $form) {
+                        if (responseText) {
+                            var upload_id, status, message;
+                            var total_users_imported = parseInt($('#total-users-imported').html());
+                            var total_users_updated = parseInt($('#total-users-updated').html());
+                            var total_users_not_imported = parseInt($('#total-users-not-imported').html()) ;
+                            var response = jQuery.parseJSON(responseText);
+                            console.log(response);
+
+                            //get result
+                            upload_id = parseInt(response['upload_id']);
+                            status = parseInt(response['status']);
+                            message = response['message'];
+
+                            status === 0 && total_users_not_imported++;
+                            status === 1 && total_users_imported++;
+                            status === 2 && total_users_updated++;
+
+                            //update stat
+                            $('#upload-id').attr('value', upload_id);
+                            $('#total-users-imported').html(total_users_imported);
+                            $('#total-users-updated').html(total_users_updated);
+                            $('#total-users-not-imported').html(total_users_not_imported);
+
+                            if (start && upload_id > 0) {
+                                $('#import-users-form').submit();
+                            }
+                            //response['tag'] && $(response['html']).insertBefore(response['tag']);
+                        }
+                    },
+                    error: function(){
+                        alert('error')
+                    }
+
+                };
+
+                $('#import-users-button').click(function() {
+                    if ($(this).attr('value') == 'Start') {
+                        start = true;
+                        $(this).attr('value', 'Cancel');
+                        return true;
+                    } else {
+                        $(this).attr('value', 'Start');
+                        start = false;
+                        return false;
+                    }
+                });
+
+                $('#import-users-form').submit(function() {
+                    options['data']['upload_id'] = $('#upload-id').attr('value');
+                    $.ajax(options);
+                    return false;
+                });
+            })
+        </script>
+        <?php
+        return ob_get_clean();
     }
 
     function import_users()
     {
         global $wpdb;
 
-        $flag = 0;
         $user_import = 0;
 
         $bp_status = is_plugin_active( 'buddypress/bp-loader.php' );
@@ -437,7 +476,8 @@ Thanks
                 define( 'AVATARS', ABSPATH . 'wp-content/uploads/avatars' );
             }
         } else {
-            $this->return_result(array($user_import, 'BuddyPress plugin is not active!'));
+            $user_import = -1;
+            $this->return_result(array('status' => $user_import, 'message' => 'BuddyPress plugin is not active!'));
         }
 
         // User data fields list used to differentiate with user meta
@@ -546,8 +586,16 @@ Thanks
             }
             // If no user data, comeout!
             if ( empty( $userdata ) ) {
-                $this->return_result(array($user_import, 'no user data'));
+                $user_import = -1;
+                $this->return_result(array(
+                    'status' => $user_import,
+                    'message' => 'no user data'
+                ));
             }
+
+            // get upload id
+            $upload_id = $_POST['upload_id'];
+            $next_upload_id = $upload_id + 1;
 
             // If creating a new user and no password was set, let auto-generate one!
             if ( empty( $userdata['user_pass'] ) )
@@ -556,7 +604,11 @@ Thanks
             $userdata['user_login'] = strtolower( $userdata['user_login'] );
 
             if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
-                $this->return_result(array($user_import, 'user_login or/and user_email needed to import member'));
+                $this->return_result(array(
+                    'status' => $user_import,
+                    'message' => 'user_login or/and user_email needed to import member',
+                    'upload_id' => $next_upload_id
+                ));
             }
             else if ( $userdata['user_login'] == '' )
                 $userdata['user_login'] = $userdata['user_email'];
@@ -578,16 +630,21 @@ Thanks
                     }
                 }
                 $user_id = wp_update_user( $userdata );
+                $user_import = 2;
             } else {
                 $user_id = wp_insert_user( $userdata );
+                $user_import = 1;
             }
 
             // Is there an error?
             if ( is_wp_error( $user_id ) ) {
-                $this->return_result(array($user_import, $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0]));
+                $user_import = 0;
+                $this->return_result(array(
+                    'status' => $user_import,
+                    'message' => $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0],
+                    'upload_id' => $next_upload_id
+                ));
             } else {
-                $user_import = 1;
-
                 //Update user import table
                 $this->update_imported_user_info($_POST['upload_id']);
 
@@ -655,14 +712,27 @@ Thanks
                     }
                 }
             }
-            $this->return_result(array($user_import,'user imported'));
+            $this->return_result(array(
+                'status' => $user_import,
+                'message' => 'user imported',
+                'upload_id' => $next_upload_id
+            ));
         }
-        $this->return_result(array($user_import, 'no user data to import'));
+
+        // check if there is any new uploaded user
+        if ($this->get_total_users_uploaded())
+            $next_upload_id = 0;
+        else
+            $next_upload_id = -1;
+        $this->return_result(array(
+            'status' => $user_import,
+            'message' => 'no user data to import',
+            'upload_id' => $next_upload_id
+        ));
     }
 
     function return_result($message)
     {
-        header('Content-Type: application/json');
         echo json_encode($message);
         exit;
     }
