@@ -646,7 +646,7 @@ Thanks
                 ));
             } else {
                 //Update user import table
-                $this->update_imported_user_info($_POST['upload_id']);
+                $this->update_imported_user_info($row['upload_id']);
 
                 //Upload user avatar if permission granted.
                 if ( $bp_status && $avatar ) {
@@ -775,12 +775,12 @@ Thanks
         return $wpdb->query($update);
     }
 
-    function get_uploaded_user_info($upload_id)
+    function get_uploaded_user_info($row)
     {
         global $wpdb;
         $table_name = self::$users_table;
-        $query = "SELECT * FROM $table_name WHERE upload_id = $upload_id";
-        return apply_filters('user_info_mapping', $wpdb->get_row($query, ARRAY_A));
+        $query = "SELECT * FROM $table_name WHERE import_date is NULL";
+        return apply_filters('user_info_mapping', $wpdb->get_row($query, ARRAY_A, $row));
     }
 
     function get_uploaded_user_transactions($email, $row_offset = 0)
