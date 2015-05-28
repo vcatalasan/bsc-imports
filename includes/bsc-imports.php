@@ -174,8 +174,8 @@ Thanks
 						<th scope="row">Update existing users: </th>
 						<td>
 							<label for="update_user">
-								<input id="update_user" name="update_user" type="checkbox" value="1" />
-								By checking this checkbox existing users data will be update.
+								<input id="update_user" name="update_user" type="checkbox" value="1" <?php checked('1', $_POST['update_user']) ?> />
+								By checking this checkbox existing users data will be updated.
 							</label>
 						</td>
 					</tr>
@@ -183,8 +183,8 @@ Thanks
 						<th scope="row">Update existing users password: </th>
 						<td>
 							<label for="update_password">
-								<input id="update_password" name="update_password" type="checkbox" value="1" />
-								By checking this checkbox existing users passowrd will be update. Otherwise remain unchanged.
+								<input id="update_password" name="update_password" type="checkbox" value="1" <?php checked('1', $_POST['update_password']) ?> />
+								By checking this checkbox existing users password will be updated. Otherwise remain unchanged.
 							</label>
 						</td>
 					</tr>
@@ -192,7 +192,7 @@ Thanks
 						<th scope="row">Notification: </th>
 						<td>
 							<label for="new_member_notification">
-								<input id="new_member_notification" name="new_member_notification" type="checkbox" value="1" />
+								<input id="new_member_notification" name="new_member_notification" type="checkbox" value="1" <?php checked('1', $_POST['new_member_notification']) ?> />
 								Send username and password to new users.
 							</label>
 						</td>
@@ -201,7 +201,7 @@ Thanks
 						<th scope="row">Custom Notification: </th>
 						<td>
 							<label for="custom_notification">
-								<input id="custom_notification" name="custom_notification" type="checkbox" value="1" />
+								<input id="custom_notification" name="custom_notification" type="checkbox" value="1" <?php checked('1', $_POST['custom_notification']) ?> />
 								Send custom notification message to users.
 							</label>
 						</td>
@@ -210,7 +210,7 @@ Thanks
 						<th scope="row">Upload Avatar: </th>
 						<td>
 							<label for="avatar">
-								<input id="avatar" name="avatar" type="checkbox" value="1" />
+								<input id="avatar" name="avatar" type="checkbox" value="1" <?php checked('1', $_POST['avatar']) ?> />
 								Upload user avatar from CSV file. You have to provide full path of the image.
 							</label>
 						</td>
@@ -388,7 +388,7 @@ Thanks
             <p>Total old users updated: <span id="total-users-updated">0</span></p>
             <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
             <form id="import-users-form" action="" method="post">
-                <input id="upload-id" type="hidden" name="upload_id" value="1" />
+                <input id="upload-id" type="hidden" name="upload_id" value="0" />
                 <input id="import-users-button" type="submit" value="Start" />
             </form>
         </div>
@@ -413,6 +413,12 @@ Thanks
                             status = parseInt(response['status']);
                             message = response['message'];
 
+                            if (status === -1) {
+                                start = false;
+                                $('#import-users-button').attr('value', message);
+                                return;
+                            }
+
                             status === 0 && total_users_not_imported++;
                             status === 1 && total_users_imported++;
                             status === 2 && total_users_updated++;
@@ -423,16 +429,12 @@ Thanks
                             $('#total-users-updated').html(total_users_updated);
                             $('#total-users-not-imported').html(total_users_not_imported);
 
-                            if (start && upload_id > 0) {
+                            if (start && upload_id >= 0) {
                                 $('#import-users-form').submit();
                             }
                             //response['tag'] && $(response['html']).insertBefore(response['tag']);
                         }
-                    },
-                    error: function(){
-                        alert('error')
                     }
-
                 };
 
                 $('#import-users-button').click(function() {
@@ -440,17 +442,28 @@ Thanks
                         start = true;
                         $(this).attr('value', 'Cancel');
                         return true;
-                    } else {
+                    } else if ($(this).attr('value') == 'Cancel') {
                         $(this).attr('value', 'Start');
                         start = false;
                         return false;
                     }
+                    start = false;
+                    return true;
                 });
 
                 $('#import-users-form').submit(function() {
-                    options['data']['upload_id'] = $('#upload-id').attr('value');
-                    $.ajax(options);
-                    return false;
+                    if (start) {
+                        //get import settings from forms
+                        $('#update_user').is(':checked') && (options['data']['update_user'] = $('#update_user').attr('value'));
+                        $('#update_password').is(':checked') && (options['data']['update_password'] = $('#update_password').attr('value'));
+                        $('#new_member_notification').is(':checked') && (options['data']['new_member_notification'] = $('#new_member_notification').attr('value'));
+                        $('#custom_notification').is(':checked') && (options['data']['custom_notification'] = $('#custom_notification').attr('value'));
+                        $('#avatar').is(':checked') && (options['data']['avatar'] = $('#avatar').attr('value'));
+                        options['data']['upload_id'] = $('#upload-id').attr('value');
+                        $.ajax(options);
+                        return false;
+                    }
+                    return true;
                 });
             })
         </script>
@@ -459,10 +472,13 @@ Thanks
     }
 
     function import_users()
-    {
+    {$this->return_result(array('status' => -1, 'message' => $_POST));
         global $wpdb;
 
-        $user_import = 0;
+        // set default values
+        $upload_id = $_POST['upload_id'];
+        $next_upload_id = -1;  // EOF
+        $user_import = 0;      // user not imported or updated
 
         $bp_status = is_plugin_active( 'buddypress/bp-loader.php' );
         if ($bp_status) {
@@ -477,7 +493,11 @@ Thanks
             }
         } else {
             $user_import = -1;
-            $this->return_result(array('status' => $user_import, 'message' => 'BuddyPress plugin is not active!'));
+            $this->return_result(array(
+                'status' => $user_import,
+                'message' => 'BuddyPress plugin is not active!',
+                'upload_id' => $next_upload_id
+            ));
         }
 
         // User data fields list used to differentiate with user meta
@@ -521,7 +541,7 @@ Thanks
             $bp_fields_type[$value->id] = $value->type;
         }
 
-        $avatar = isset( $_POST['avatar'] ) ? $_POST['avatar'] : false;
+        $avatar = !empty( $_POST['avatar'] ) ? $_POST['avatar'] : false;
 
         // Check whether the admin wants to upload members avatar or not. If yes then
         // Check whether the avatars directory present or not. If not then create.
@@ -536,7 +556,6 @@ Thanks
             foreach ( $row as $ckey => $cvalue ) {
                 if ( empty( $cvalue ) ) continue;
 
-                //$column_name = $headers[$ckey];
                 $column_name = $ckey;
                 $bp_field_id = array_search( $column_name, $bp_xprofile_fields );
 
@@ -554,7 +573,7 @@ Thanks
                 }
                 else $usermeta[$column_name] = $cvalue;
             }
-            if ( !isset( $_POST['update_user'] ) && $bp_status ) {
+            if ( empty( $_POST['update_user'] ) && $bp_status ) {
                 $bp_left_fields = array_diff( $bp_xprofile_fields_with_default_value, $bp_provided_fields );
 
                 if ( count( $bp_left_fields ) ) {
@@ -589,13 +608,10 @@ Thanks
                 $user_import = -1;
                 $this->return_result(array(
                     'status' => $user_import,
-                    'message' => 'no user data'
+                    'message' => 'no user data',
+                    'upload_id' => $next_upload_id
                 ));
             }
-
-            // get upload id
-            $upload_id = $_POST['upload_id'];
-            $next_upload_id = $upload_id + 1;
 
             // If creating a new user and no password was set, let auto-generate one!
             if ( empty( $userdata['user_pass'] ) )
@@ -604,6 +620,7 @@ Thanks
             $userdata['user_login'] = strtolower( $userdata['user_login'] );
 
             if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
+                $next_upload_id = $upload_id + 1;
                 $this->return_result(array(
                     'status' => $user_import,
                     'message' => 'user_login or/and user_email needed to import member',
@@ -615,7 +632,7 @@ Thanks
             else if ( $userdata['user_email'] == '' )
                 $userdata['user_email'] = $userdata['user_login'];
 
-            if ( isset( $_POST['update_user'] ) ) {
+            if ( !empty( $_POST['update_user'] ) ) {
                 //Check whether the user already exist or not
                 $user_details = get_user_by( 'email', $userdata['user_email'] );
 
@@ -623,7 +640,7 @@ Thanks
                 if ( $user_details ) {
                     $userdata['ID'] = $user_details->data->ID;
 
-                    if ( isset( $_POST['update_password'] ) ) {
+                    if ( !empty( $_POST['update_password'] ) ) {
                         // $userdata['user_pass'] = wp_hash_password($userdata['user_pass']);
                     } else {
                         unset( $userdata['user_pass'] );
@@ -639,6 +656,7 @@ Thanks
             // Is there an error?
             if ( is_wp_error( $user_id ) ) {
                 $user_import = 0;
+                $next_upload_id = $upload_id + 1;
                 $this->return_result(array(
                     'status' => $user_import,
                     'message' => $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0],
@@ -704,26 +722,24 @@ Thanks
                     }
                 }
 
-                if ( isset( $_POST['new_member_notification'] ) ) {
-                    if ( isset( $_POST['custom_notification'] ) ) {
+                if ( !empty( $_POST['new_member_notification'] ) ) {
+                    if ( !empty( $_POST['custom_notification'] ) ) {
                         $this->send_notifiction_to_new_user( $user_id, $userdata['user_pass'] );
                     } else {
-                        wp_new_user_notification( $user_id, $userdata['user_pass'] );
+                        $this->wp_new_user_notification( $user_id, $userdata['user_pass'] );
                     }
                 }
             }
+            $next_upload_id = $upload_id + 1;
             $this->return_result(array(
                 'status' => $user_import,
-                'message' => 'user imported',
+                'message' => "user ${userdata['user_login']} imported/updated",
                 'upload_id' => $next_upload_id
             ));
         }
 
-        // check if there is any new uploaded user
-        if ($this->get_total_users_uploaded())
-            $next_upload_id = 0;
-        else
-            $next_upload_id = -1;
+        // check if there is any new uploaded user and reset back to the beginning
+        $this->get_total_users_uploaded() and $next_upload_id = 0;
         $this->return_result(array(
             'status' => $user_import,
             'message' => 'no user data to import',
@@ -751,18 +767,19 @@ Thanks
 
     function user_info_mapping(array $import)
     {
-        $user_info = count($import) ? array_merge(array(
+        $user_info = count($import) ? array_merge($import, array(
             //wp_user fields
-            'user_login' => $import['email'],
+            'user_login' => strtolower(trim($import['email'])),
             'user_pass' => $import[''],
-            'user_nicename' => $import[''],
-            'user_email' => $import['email'],
+            'user_nicename' => strtolower(trim($import['first_name']) . '-' . trim($import['last_name'])),
+            'user_email' => trim($import['email']),
             'user_url' => $import[''],
             'user_registered' => $import[''],
             'user_activation_key' => $import[''],
             'user_status' => $import[''],
-            'display_name' => $import['']
-        ), $import) : array();
+            'display_name' => ucwords(trim($import['first_name']) . ' ' . trim($import['last_name'])),
+            'nickname' => ucwords(trim($import['first_name']) . ' ' . trim($import['last_name']))
+        )) : array();
         return $user_info;
     }
 
