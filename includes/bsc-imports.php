@@ -472,7 +472,7 @@ Thanks
     }
 
     function import_users()
-    {$this->return_result(array('status' => -1, 'message' => $_POST));
+    {
         global $wpdb;
 
         // set default values
