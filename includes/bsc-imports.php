@@ -771,7 +771,7 @@ Thanks
         global $wpdb;
         $table_name = self::$users_table;
         $current_date = date('Y-m-d H:i:s');
-        $update= "UPDATE $table_name SET (import_date = '$current_date') WHERE upload_id = $upload_id";
+        $update= "UPDATE $table_name SET import_date = '$current_date' WHERE upload_id = $upload_id";
         return $wpdb->query($update);
     }
 
