@@ -158,10 +158,10 @@ Thanks
                     </colgroup>
                     <tr>
                         <td>
-                            <?php if ($this->total_users_uploaded) echo "$this->total_users_uploaded users"; ?>
+                            <?php if ($this->total_users_uploaded) echo "<span id='total-users-uploaded'>$this->total_users_uploaded</span> users"; ?>
                         </td>
                         <td>
-                            <?php if ($this->total_transactions_uploaded) echo "$this->total_transactions_uploaded transactions"; ?>
+                            <?php if ($this->total_transactions_uploaded) echo "<span id='total-transactions-uploaded'>$this->total_transactions_uploaded</span> transactions"; ?>
                         </td>
                     </tr>
                 </table>
@@ -388,71 +388,76 @@ Thanks
             <p>Total old users updated: <span id="total-users-updated">0</span></p>
             <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
             <form id="import-users-form" action="" method="post">
-                <input id="upload-id" type="hidden" name="upload_id" value="0" />
+                <input id="upload-id" type="hidden" name="upload_id" value="10" />
                 <input id="import-users-button" type="submit" value="Start" />
             </form>
         </div>
         <script type="text/javascript">
             jQuery(document).ready(function($) {
-                var start = true;
+                var ok = true, eof = false, error = false;
                 var options = {
                     data: {action: 'import_users'},
                     url: '<?php echo admin_url( 'admin-ajax.php') ?>',
                     method: 'post',
                     success: function (responseText, statusText, xhr, $form) {
                         if (responseText) {
-                            var upload_id, status, message;
-                            var total_users_imported = parseInt($('#total-users-imported').html());
-                            var total_users_updated = parseInt($('#total-users-updated').html());
+                            var total_users_uploaded = parseInt($('#total-users-uploaded').html());
+                            var total_new_users_imported = parseInt($('#total-users-imported').html());
+                            var total_old_users_updated = parseInt($('#total-users-updated').html());
                             var total_users_not_imported = parseInt($('#total-users-not-imported').html()) ;
                             var response = jQuery.parseJSON(responseText);
                             console.log(response);
 
                             //get result
-                            upload_id = parseInt(response['upload_id']);
-                            status = parseInt(response['status']);
-                            message = response['message'];
+                            ok = parseInt(response['ok']) === 1 ? true : false;
+                            eof = parseInt(response['eof']) === 1 ? true : false;
+                            error = response['error'] !== undefined ? true : false;
 
-                            if (status === -1) {
-                                start = false;
-                                $('#import-users-button').attr('value', message);
+
+                            total_new_users_imported += parseInt(response['new_users_imported']['count']);
+                            total_old_users_updated += parseInt(response['old_users_updated']['count']);
+                            total_users_not_imported += parseInt(response['users_not_imported']['count']);
+
+                            total_users_uploaded -= (total_new_users_imported + total_old_users_updated + total_users_not_imported);
+
+                            eof = total_users_uploaded  > 0 ? eof : true;
+
+                            //update stat
+                            $('#total-users-imported').html(total_new_users_imported);
+                            $('#total-users-updated').html(total_old_users_updated);
+                            $('#total-users-not-imported').html(total_users_not_imported);
+                            $('#total-users-uploaded').html(total_users_uploaded);
+
+                            if (eof || error) {
+                                ok = false;
+                                $('#import-users-button').attr('value', eof ? 'All Done!' : response['error']);
                                 return;
                             }
 
-                            status === 0 && total_users_not_imported++;
-                            status === 1 && total_users_imported++;
-                            status === 2 && total_users_updated++;
-
-                            //update stat
-                            $('#upload-id').attr('value', upload_id);
-                            $('#total-users-imported').html(total_users_imported);
-                            $('#total-users-updated').html(total_users_updated);
-                            $('#total-users-not-imported').html(total_users_not_imported);
-
-                            if (start && upload_id >= 0) {
+                            if (ok) {
                                 $('#import-users-form').submit();
                             }
-                            //response['tag'] && $(response['html']).insertBefore(response['tag']);
                         }
                     }
                 };
 
                 $('#import-users-button').click(function() {
                     if ($(this).attr('value') == 'Start') {
-                        start = true;
+                        ok = true;
                         $(this).attr('value', 'Cancel');
                         return true;
                     } else if ($(this).attr('value') == 'Cancel') {
                         $(this).attr('value', 'Start');
-                        start = false;
+                        ok = false;
                         return false;
                     }
-                    start = false;
+                    ok = false;
                     return true;
                 });
 
                 $('#import-users-form').submit(function() {
-                    if (start) {
+                    <?php echo 'options["data"]["XDEBUG_SESSION_START"] = "PhpStorm";' ?>
+                    if (ok) {
                         //get import settings from forms
                         $('#update_user').is(':checked') && (options['data']['update_user'] = $('#update_user').attr('value'));
                         $('#update_password').is(':checked') && (options['data']['update_password'] = $('#update_password').attr('value'));
@@ -477,8 +482,11 @@ Thanks
 
         // set default values
         $upload_id = $_POST['upload_id'];
-        $next_upload_id = -1;  // EOF
-        $user_import = 0;      // user not imported or updated
+        $status = array(
+            'new_users_imported' => array('count' => 0, 'users' => array()),
+            'old_users_updated' => array('count' => 0, 'users' => array()),
+            'users_not_imported' => array('count' => 0, 'users' => array())
+        );
 
         $bp_status = is_plugin_active( 'buddypress/bp-loader.php' );
         if ($bp_status) {
@@ -492,12 +500,8 @@ Thanks
                 define( 'AVATARS', ABSPATH . 'wp-content/uploads/avatars' );
             }
         } else {
-            $user_import = -1;
-            $this->return_result(array(
-                'status' => $user_import,
-                'message' => 'BuddyPress plugin is not active!',
-                'upload_id' => $next_upload_id
-            ));
+            $status['error'] = 'BuddyPress plugin not installed/activated';
+            $this->return_result($status);
         }
 
         // User data fields list used to differentiate with user meta
@@ -547,8 +551,10 @@ Thanks
         // Check whether the avatars directory present or not. If not then create.
         if ( $avatar ) if ( ! file_exists( AVATARS ) ) mkdir( AVATARS, 0777 );
 
-        $row = $this->get_uploaded_user_info($_POST['upload_id']);
-        if (!empty($row)) {
+        $users = $this->get_uploaded_users_info($upload_id);
+        foreach ($users as $row) {
+
+            $row = apply_filters('user_info_mapping', $row);
 
             // Separate user data from meta
             $userdata = $usermeta = $bpmeta = $bp_provided_fields = array();
@@ -605,12 +611,9 @@ Thanks
             }
             // If no user data, comeout!
             if ( empty( $userdata ) ) {
-                $user_import = -1;
-                $this->return_result(array(
-                    'status' => $user_import,
-                    'message' => 'no user data',
-                    'upload_id' => $next_upload_id
-                ));
+                $status['users_not_imported']['count']++;
+                $status['users_not_imported']['users'][] = "${row['upload_id']}: no user data";
+                continue;
             }
 
             // If creating a new user and no password was set, let auto-generate one!
@@ -620,12 +623,9 @@ Thanks
             $userdata['user_login'] = strtolower( $userdata['user_login'] );
 
             if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
-                $next_upload_id = $upload_id + 1;
-                $this->return_result(array(
-                    'status' => $user_import,
-                    'message' => 'user_login or/and user_email needed to import member',
-                    'upload_id' => $next_upload_id
-                ));
+                $status['users_not_imported']['count']++;
+                $status['users_not_imported']['users'][] = "${row['upload_id']}: no user login/email";
+                continue;
             }
             else if ( $userdata['user_login'] == '' )
                 $userdata['user_login'] = $userdata['user_email'];
@@ -655,13 +655,9 @@ Thanks
 
             // Is there an error?
             if ( is_wp_error( $user_id ) ) {
-                $user_import = 0;
-                $next_upload_id = $upload_id + 1;
-                $this->return_result(array(
-                    'status' => $user_import,
-                    'message' => $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0],
-                    'upload_id' => $next_upload_id
-                ));
+                $status['users_not_imported']['count']++;
+                $status['users_not_imported']['users'][] = $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0];
+                continue;
             } else {
                 //Update user import table
                 $this->update_imported_user_info($row['upload_id']);
@@ -730,21 +726,20 @@ Thanks
                     }
                 }
             }
-            $next_upload_id = $upload_id + 1;
-            $this->return_result(array(
-                'status' => $user_import,
-                'message' => "user ${userdata['user_login']} imported/updated",
-                'upload_id' => $next_upload_id
-            ));
+
+            if ($user_import == 1) {
+                $status['new_users_imported']['count']++;
+                $status['new_users_imported']['users'][] = $userdata['user_login'];
+            } elseif ($user_import == 2) {
+                $status['old_users_updated']['count']++;
+                $status['old_users_updated']['users'][] = $userdata['user_login'];
+            }
         }
 
-        // check if there is any new uploaded user and reset back to the beginning
-        $this->get_total_users_uploaded() and $next_upload_id = 0;
-        $this->return_result(array(
-            'status' => $user_import,
-            'message' => 'no user data to import',
-            'upload_id' => $next_upload_id
-        ));
+        // check for more records
+        $upload_id > count($users) and $status['eof'] = 1;
+        $status['ok'] = 1;
+        $this->return_result($status);
     }
 
     function return_result($message)
@@ -792,12 +787,12 @@ Thanks
         return $wpdb->query($update);
     }
 
-    function get_uploaded_user_info($row)
+    function get_uploaded_users_info($rows)
     {
         global $wpdb;
         $table_name = self::$users_table;
-        $query = "SELECT * FROM $table_name WHERE import_date is NULL";
-        return apply_filters('user_info_mapping', $wpdb->get_row($query, ARRAY_A, $row));
+        $query = "SELECT * FROM $table_name WHERE import_date is NULL LIMIT $rows";
+        return $wpdb->get_results($query, ARRAY_A);
     }
 
     function get_uploaded_user_transactions($email, $row_offset = 0)
