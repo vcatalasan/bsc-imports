@@ -171,24 +171,6 @@ Thanks
                 <br /><br />
 				<table>
 					<tr valign="top">
-						<th scope="row">Update existing users: </th>
-						<td>
-							<label for="update_user">
-								<input id="update_user" name="update_user" type="checkbox" value="1" <?php checked('1', $_POST['update_user']) ?> />
-								By checking this checkbox existing users data will be updated.
-							</label>
-						</td>
-					</tr>
-					<tr valign="top">
-						<th scope="row">Update existing users password: </th>
-						<td>
-							<label for="update_password">
-								<input id="update_password" name="update_password" type="checkbox" value="1" <?php checked('1', $_POST['update_password']) ?> />
-								By checking this checkbox existing users password will be updated. Otherwise remain unchanged.
-							</label>
-						</td>
-					</tr>
-					<tr valign="top">
 						<th scope="row">Notification: </th>
 						<td>
 							<label for="new_member_notification">
@@ -332,6 +314,7 @@ Thanks
         //add extra fields for tracking
         $fields[] = "`upload_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
         $fields[] = "`import_date` DATETIME DEFAULT NULL";
+        $fields[] = "`import_status` ENUM('inserted','updated','error') DEFAULT NULL";
         $fields[] = "`upload_id` BIGINT(20) NOT NULL AUTO_INCREMENT";
         $sql = "CREATE TABLE IF NOT EXISTS $table (" . implode(', ', $fields) . ', PRIMARY KEY(`upload_id`));';
         //echo $sql . "\n";
@@ -349,6 +332,7 @@ Thanks
             //set default value
             $values[] = '\'' . addslashes(date('Y-m-d H:i:s')) . '\''; // upload date
             $values[] = 'NULL'; // import_date
+            $values[] = 'NULL'; // import_status
             $values[] = 'NULL'; // upload_id
             $sql = "INSERT into $table values(" . implode(', ', $values) . ');';
             //echo $sql . "\n";
@@ -387,6 +371,7 @@ Thanks
             <p>Total new users imported: <span id="total-users-imported">0</span></p>
             <p>Total old users updated: <span id="total-users-updated">0</span></p>
             <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
+            <ul id="users-not-imported-list"></ul>
             <form id="import-users-form" action="" method="post">
                 <input id="upload-id" type="hidden" name="upload_id" value="10" />
                 <input id="import-users-button" type="submit" value="Start" />
@@ -405,6 +390,7 @@ Thanks
                             var total_new_users_imported = parseInt($('#total-users-imported').html());
                             var total_old_users_updated = parseInt($('#total-users-updated').html());
                             var total_users_not_imported = parseInt($('#total-users-not-imported').html()) ;
+                            var new_users_imported, old_users_updated, users_not_imported;
                             var response = jQuery.parseJSON(responseText);
                             console.log(response);
 
@@ -414,19 +400,22 @@ Thanks
                             error = response['error'] !== undefined ? true : false;
 
 
-                            total_new_users_imported += parseInt(response['new_users_imported']['count']);
-                            total_old_users_updated += parseInt(response['old_users_updated']['count']);
-                            total_users_not_imported += parseInt(response['users_not_imported']['count']);
+                            new_users_imported = parseInt(response['new_users_imported']['count']);
+                            old_users_updated = parseInt(response['old_users_updated']['count']);
+                            users_not_imported = parseInt(response['users_not_imported']['count']);
 
-                            total_users_uploaded -= (total_new_users_imported + total_old_users_updated + total_users_not_imported);
-
-                            eof = total_users_uploaded  > 0 ? eof : true;
+                            total_users_uploaded -= (new_users_imported + old_users_updated + users_not_imported);
 
                             //update stat
-                            $('#total-users-imported').html(total_new_users_imported);
-                            $('#total-users-updated').html(total_old_users_updated);
-                            $('#total-users-not-imported').html(total_users_not_imported);
+                            $('#total-users-imported').html(total_new_users_imported + new_users_imported);
+                            $('#total-users-updated').html(total_old_users_updated + old_users_updated);
+                            $('#total-users-not-imported').html(total_users_not_imported + users_not_imported);
                             $('#total-users-uploaded').html(total_users_uploaded);
+
+                            // list users not imported
+                            for (var i = 0; i < users_not_imported; i++) {
+                                $('#users-not-imported-list').append("<li>" + response['users_not_imported']['users'][i] + "</li>");
+                            }
 
                             if (eof || error) {
                                 ok = false;
@@ -459,8 +448,6 @@ Thanks
                     <?php echo 'options["data"]["XDEBUG_SESSION_START"] = "PhpStorm";' ?>
                     if (ok) {
                         //get import settings from forms
-                        $('#update_user').is(':checked') && (options['data']['update_user'] = $('#update_user').attr('value'));
-                        $('#update_password').is(':checked') && (options['data']['update_password'] = $('#update_password').attr('value'));
                         $('#new_member_notification').is(':checked') && (options['data']['new_member_notification'] = $('#new_member_notification').attr('value'));
                         $('#custom_notification').is(':checked') && (options['data']['custom_notification'] = $('#custom_notification').attr('value'));
                         $('#avatar').is(':checked') && (options['data']['avatar'] = $('#avatar').attr('value'));
@@ -500,7 +487,7 @@ Thanks
                 define( 'AVATARS', ABSPATH . 'wp-content/uploads/avatars' );
             }
         } else {
-            $status['error'] = 'BuddyPress plugin not installed/activated';
+            $status['error'] = 'BuddyPress plugin is not installed or activated';
             $this->return_result($status);
         }
 
@@ -572,48 +559,51 @@ Thanks
                     $cvalue = array_filter( $cvalue, function( $item ) { return !empty( $item[0] ); } );
                 }
 
-                if ( in_array( $column_name, $wp_userdata_fields ) ) $userdata[$column_name] = $cvalue;
+                if ( in_array( $column_name, $wp_userdata_fields ) )
+                    $userdata[$column_name] = $cvalue;
                 else if ( $bp_status && $bp_field_id ) {
                     $bp_provided_fields[] = $column_name;
                     $bpmeta[$bp_field_id] = $cvalue;
                 }
                 else $usermeta[$column_name] = $cvalue;
             }
-            if ( empty( $_POST['update_user'] ) && $bp_status ) {
-                $bp_left_fields = array_diff( $bp_xprofile_fields_with_default_value, $bp_provided_fields );
 
-                if ( count( $bp_left_fields ) ) {
-                    foreach ( $bp_left_fields as $bp_left_field ) {
-                        $bp_field_id = array_search( $bp_left_field, $bp_xprofile_fields );
-                        $bpf_sql = 'SELECT id, type
-                                        FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
-                                        WHERE id=' . $bp_field_id . '
-                                            AND parent_id=0';
-                        $bp_fields = $wpdb->get_results( $bpf_sql );
-
-                        $bpfo_sql = 'SELECT name
-                                         FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
-                                         WHERE parent_id=' . $bp_fields[0]->id . '
-                                            AND is_default_option=1';
-                        $bp_field_options = $wpdb->get_results( $bpfo_sql );
-                        $field_options = array();
-
-                        if ( $bp_fields[0]->type == 'selectbox' || $bp_fields[0]->type == 'radio' ) {
-                            $bpmeta[$bp_fields[0]->id] = $bp_field_options[0]->name;
-                        } else {
-                            foreach ( $bp_field_options as $bp_field_option ) {
-                                $field_options[] = $bp_field_option->name;
-                            }
-                            $bpmeta[$bp_fields[0]->id] = maybe_unserialize( $field_options );
-                        }
-                    }
-                }
-            }
             // If no user data, comeout!
             if ( empty( $userdata ) ) {
                 $status['users_not_imported']['count']++;
                 $status['users_not_imported']['users'][] = "${row['upload_id']}: no user data";
+                //Update user import table
+                $this->update_imported_user_info($row['upload_id'], 'error');
                 continue;
+            }
+
+            $bp_left_fields = array_diff( $bp_xprofile_fields_with_default_value, $bp_provided_fields );
+
+            if ( count( $bp_left_fields ) ) {
+                foreach ( $bp_left_fields as $bp_left_field ) {
+                    $bp_field_id = array_search( $bp_left_field, $bp_xprofile_fields );
+                    $bpf_sql = 'SELECT id, type
+                                    FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
+                                    WHERE id=' . $bp_field_id . '
+                                        AND parent_id=0';
+                    $bp_fields = $wpdb->get_results( $bpf_sql );
+
+                    $bpfo_sql = 'SELECT name
+                                     FROM ' . $wpdb->base_prefix . 'bp_xprofile_fields
+                                     WHERE parent_id=' . $bp_fields[0]->id . '
+                                        AND is_default_option=1';
+                    $bp_field_options = $wpdb->get_results( $bpfo_sql );
+                    $field_options = array();
+
+                    if ( $bp_fields[0]->type == 'selectbox' || $bp_fields[0]->type == 'radio' ) {
+                        $bpmeta[$bp_fields[0]->id] = $bp_field_options[0]->name;
+                    } else {
+                        foreach ( $bp_field_options as $bp_field_option ) {
+                            $field_options[] = $bp_field_option->name;
+                        }
+                        $bpmeta[$bp_fields[0]->id] = maybe_unserialize( $field_options );
+                    }
+                }
             }
 
             // If creating a new user and no password was set, let auto-generate one!
@@ -625,6 +615,8 @@ Thanks
             if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
                 $status['users_not_imported']['count']++;
                 $status['users_not_imported']['users'][] = "${row['upload_id']}: no user login/email";
+                //Update user import table
+                $this->update_imported_user_info($row['upload_id'], 'error');
                 continue;
             }
             else if ( $userdata['user_login'] == '' )
@@ -632,20 +624,14 @@ Thanks
             else if ( $userdata['user_email'] == '' )
                 $userdata['user_email'] = $userdata['user_login'];
 
-            if ( !empty( $_POST['update_user'] ) ) {
-                //Check whether the user already exist or not
-                $user_details = get_user_by( 'email', $userdata['user_email'] );
+            //Check whether the user already exist or not
+            $user_details = get_user_by( 'email', $userdata['user_email'] );
+            empty($user_details) and $user_details = get_user_by( 'login', $userdata['user_login'] );
 
-                //If user already exists then assign ID and update the account.
-                if ( $user_details ) {
-                    $userdata['ID'] = $user_details->data->ID;
-
-                    if ( !empty( $_POST['update_password'] ) ) {
-                        // $userdata['user_pass'] = wp_hash_password($userdata['user_pass']);
-                    } else {
-                        unset( $userdata['user_pass'] );
-                    }
-                }
+            //If user already exists then assign ID and update the account.
+            if ($user_details) {
+                $userdata['ID'] = $user_details->data->ID;
+                unset( $userdata['user_pass'] );    //do not update password
                 $user_id = wp_update_user( $userdata );
                 $user_import = 2;
             } else {
@@ -657,11 +643,10 @@ Thanks
             if ( is_wp_error( $user_id ) ) {
                 $status['users_not_imported']['count']++;
                 $status['users_not_imported']['users'][] = $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0];
+                //Update user import table
+                $this->update_imported_user_info($row['upload_id'], 'error');
                 continue;
             } else {
-                //Update user import table
-                $this->update_imported_user_info($row['upload_id']);
-
                 //Upload user avatar if permission granted.
                 if ( $bp_status && $avatar ) {
                     $image_dir = AVATARS . '/'  . $user_id;
@@ -730,9 +715,13 @@ Thanks
             if ($user_import == 1) {
                 $status['new_users_imported']['count']++;
                 $status['new_users_imported']['users'][] = $userdata['user_login'];
+                //Update user import table
+                $this->update_imported_user_info($row['upload_id'], 'inserted');
             } elseif ($user_import == 2) {
                 $status['old_users_updated']['count']++;
                 $status['old_users_updated']['users'][] = $userdata['user_login'];
+                //Update user import table
+                $this->update_imported_user_info($row['upload_id'], 'updated');
             }
         }
 
@@ -762,28 +751,29 @@ Thanks
 
     function user_info_mapping(array $import)
     {
+        $import = array_map( 'trim', $import );
         $user_info = count($import) ? array_merge($import, array(
             //wp_user fields
-            'user_login' => strtolower(trim($import['email'])),
+            'user_login' => strtolower($import['email']),
             'user_pass' => $import[''],
-            'user_nicename' => strtolower(trim($import['first_name']) . '-' . trim($import['last_name'])),
-            'user_email' => trim($import['email']),
+            'user_nicename' => strtolower($import['first_name'] . '-' . $import['last_name']),
+            'user_email' => $import['email'],
             'user_url' => $import[''],
             'user_registered' => $import[''],
             'user_activation_key' => $import[''],
             'user_status' => $import[''],
-            'display_name' => ucwords(trim($import['first_name']) . ' ' . trim($import['last_name'])),
-            'nickname' => ucwords(trim($import['first_name']) . ' ' . trim($import['last_name']))
+            'display_name' => ucwords($import['first_name'] . ' ' . $import['last_name']),
+            'nickname' => ucwords($import['first_name'] . ' ' . $import['last_name'])
         )) : array();
         return $user_info;
     }
 
-    function update_imported_user_info($upload_id)
+    function update_imported_user_info($upload_id, $status)
     {
         global $wpdb;
         $table_name = self::$users_table;
         $current_date = date('Y-m-d H:i:s');
-        $update= "UPDATE $table_name SET import_date = '$current_date' WHERE upload_id = $upload_id";
+        $update= "UPDATE $table_name SET import_date = '$current_date', import_status = '$status' WHERE upload_id = $upload_id";
         return $wpdb->query($update);
     }
 
