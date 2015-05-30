@@ -32,6 +32,8 @@ Thanks
     var $total_users_uploaded, $total_transactions_uploaded;
     var $uploaded;
 
+    var $status;
+
 	function __construct() {
         // initialize values
         self::$settings['bsc_imports_page_link'] = 'tools.php?page=bsc_membership_import';
@@ -40,6 +42,7 @@ Thanks
 		// add admin menu
 		add_action('admin_menu', array($this, 'bp_imports_menu'));
         add_filter('user_info_mapping', array($this, 'user_info_mapping'));
+        add_filter('transaction_info_mapping', array($this, 'transaction_info_mapping'), 10, 2);
         add_filter('normalize_field_name', array($this, 'normalize_field_name'), 10, 2);
 
         // add ajax calls
@@ -368,10 +371,17 @@ Thanks
         ob_start();
         ?>
         <div class="updated">
-            <p>Total new users imported: <span id="total-users-imported">0</span></p>
-            <p>Total old users updated: <span id="total-users-updated">0</span></p>
-            <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
-            <ul id="users-not-imported-list"></ul>
+            <div>
+                <p>Total new users imported: <span id="total-users-imported">0</span></p>
+                <p>Total old users updated: <span id="total-users-updated">0</span></p>
+                <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
+                <ul id="users-not-imported-list"></ul>
+            </div>
+            <div>
+                <p>Total transactions imported: <span id="total-transactions-imported">0</span></p>
+                <p style="color: #ff0000;">Total transactions not imported: <span id="total-transactions-not-imported">0</span></p>
+                <ul id="transactions-not-imported-list"></ul>
+            </div>
             <form id="import-users-form" action="" method="post">
                 <input id="upload-id" type="hidden" name="upload_id" value="10" />
                 <input id="import-users-button" type="submit" value="Start" />
@@ -468,12 +478,13 @@ Thanks
         global $wpdb;
 
         // set default values
-        $upload_id = $_POST['upload_id'];
-        $status = array(
+        $this->status = array(
             'new_users_imported' => array('count' => 0, 'users' => array()),
             'old_users_updated' => array('count' => 0, 'users' => array()),
             'users_not_imported' => array('count' => 0, 'users' => array())
         );
+
+        $upload_id = $_POST['upload_id'];
 
         $bp_status = is_plugin_active( 'buddypress/bp-loader.php' );
         if ($bp_status) {
@@ -487,8 +498,8 @@ Thanks
                 define( 'AVATARS', ABSPATH . 'wp-content/uploads/avatars' );
             }
         } else {
-            $status['error'] = 'BuddyPress plugin is not installed or activated';
-            $this->return_result($status);
+            $this->status['error'] = 'BuddyPress plugin is not installed or activated';
+            $this->return_result($this->status);
         }
 
         // User data fields list used to differentiate with user meta
@@ -541,12 +552,12 @@ Thanks
         $users = $this->get_uploaded_users_info($upload_id);
         foreach ($users as $row) {
 
-            $row = apply_filters('user_info_mapping', $row);
+            $user = apply_filters('user_info_mapping', $row);
 
             // Separate user data from meta
             $userdata = $usermeta = $bpmeta = $bp_provided_fields = array();
 
-            foreach ( $row as $ckey => $cvalue ) {
+            foreach ( $user as $ckey => $cvalue ) {
                 if ( empty( $cvalue ) ) continue;
 
                 $column_name = $ckey;
@@ -570,10 +581,10 @@ Thanks
 
             // If no user data, comeout!
             if ( empty( $userdata ) ) {
-                $status['users_not_imported']['count']++;
-                $status['users_not_imported']['users'][] = "${row['upload_id']}: no user data";
+                $this->status['users_not_imported']['count']++;
+                $this->status['users_not_imported']['users'][] = "${row['upload_id']}: no user data";
                 //Update user import table
-                $this->update_imported_user_info($row['upload_id'], 'error');
+                $this->update_imported_user_info($user['upload_id'], 'error');
                 continue;
             }
 
@@ -613,10 +624,10 @@ Thanks
             $userdata['user_login'] = strtolower( $userdata['user_login'] );
 
             if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
-                $status['users_not_imported']['count']++;
-                $status['users_not_imported']['users'][] = "${row['upload_id']}: no user login/email";
+                $this->status['users_not_imported']['count']++;
+                $this->status['users_not_imported']['users'][] = "${row['upload_id']}: no user login/email";
                 //Update user import table
-                $this->update_imported_user_info($row['upload_id'], 'error');
+                $this->update_imported_user_info($user['upload_id'], 'error');
                 continue;
             }
             else if ( $userdata['user_login'] == '' )
@@ -641,10 +652,10 @@ Thanks
 
             // Is there an error?
             if ( is_wp_error( $user_id ) ) {
-                $status['users_not_imported']['count']++;
-                $status['users_not_imported']['users'][] = $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0];
+                $this->status['users_not_imported']['count']++;
+                $this->status['users_not_imported']['users'][] = $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0];
                 //Update user import table
-                $this->update_imported_user_info($row['upload_id'], 'error');
+                $this->update_imported_user_info($user['upload_id'], 'error');
                 continue;
             } else {
                 //Upload user avatar if permission granted.
@@ -713,48 +724,68 @@ Thanks
             }
 
             if ($user_import == 1) {
-                $status['new_users_imported']['count']++;
-                $status['new_users_imported']['users'][] = $userdata['user_login'];
+                $this->status['new_users_imported']['count']++;
+                $this->status['new_users_imported']['users'][] = $userdata['user_login'];
                 //Update user import table
-                $this->update_imported_user_info($row['upload_id'], 'inserted');
+                $this->update_imported_user_info($user['upload_id'], 'inserted');
             } elseif ($user_import == 2) {
-                $status['old_users_updated']['count']++;
-                $status['old_users_updated']['users'][] = $userdata['user_login'];
+                $this->status['old_users_updated']['count']++;
+                $this->status['old_users_updated']['users'][] = $userdata['user_login'];
                 //Update user import table
-                $this->update_imported_user_info($row['upload_id'], 'updated');
+                $this->update_imported_user_info($user['upload_id'], 'updated');
             }
+
+            $this->import_transactions($user_id);
         }
 
         // check for more records
-        $upload_id > count($users) and $status['eof'] = 1;
-        $status['ok'] = 1;
-        $this->return_result($status);
+        $upload_id > count($users) and $this->status['eof'] = 1;
+        $this->status['ok'] = 1;
+        $this->return_result($this->status);
     }
 
-    function return_result($message)
+    function return_result($status)
     {
-        echo json_encode($message);
+        echo json_encode($status);
         exit;
     }
 
-    function pmpro_import()
+    function import_transactions($user_id)
     {
-        $html_message = '<div class="updated">';
-        $html_message .= $not_import_message;
-        $html_message .= '<p style="color: #ff0000;">' . $error_message . '</p>';
-        $html_message .= '<p>Total new transactions imported: '. $new_transactions_imported . '</p>';
-        $html_message .= '<p>Total old transactions updated: '. $old_transactions_updated . '</p>';
-        $html_message .= '<p style="color: #ff0000;">Total transactions not imported: ' . $transactions_not_imported . '</p>';
-        $html_message .= "</div>";
-        return $html_message;
+        $user_details = get_user_by( 'id', $user_id );
+
+        if (empty($user_details)) return;
+
+        $transactions = $this->get_uploaded_user_transactions($user_details->user_login, $user_details->user_email);
+        foreach ($transactions as $row) {
+
+            $transaction = apply_filters('transaction_info_mapping', $row, $user_id);
+
+            $membership = $this->get_membership_info($transaction);
+
+            //change membership level
+            if (!empty($membership['membership_id'])) {
+                pmpro_changeMembershipLevel($membership, $user_id);
+            }
+
+            //add order so integration with gateway works
+            $order = $this->get_membership_order($transaction);
+            $order->saveOrder();
+
+            //update timestamp of order?
+            if (!empty($transaction['timestamp'])) {
+                $timestamp = $transaction['timestamp'];
+                $order->updateTimeStamp(date("Y", $timestamp), date("m", $timestamp), date("d", $timestamp), date("H:i:s", $timestamp));
+            }
+        }
     }
 
     function user_info_mapping(array $import)
     {
-        $import = array_map( 'trim', $import );
+        $import = array_map('trim', $import);
         $user_info = count($import) ? array_merge($import, array(
             //wp_user fields
-            'user_login' => strtolower($import['email']),
+            'user_login' => $import['username'],
             'user_pass' => $import[''],
             'user_nicename' => strtolower($import['first_name'] . '-' . $import['last_name']),
             'user_email' => $import['email'],
@@ -763,9 +794,99 @@ Thanks
             'user_activation_key' => $import[''],
             'user_status' => $import[''],
             'display_name' => ucwords($import['first_name'] . ' ' . $import['last_name']),
-            'nickname' => ucwords($import['first_name'] . ' ' . $import['last_name'])
+            'nickname' => ucwords($import['first_name'] . ' ' . $import['last_name']),
+            'role' => 'subscriber'
         )) : array();
         return $user_info;
+    }
+
+    function transaction_info_mapping(array $import, $user_id)
+    {
+        $import = array_map('trim', $import);
+        $level = $this->get_membership_level($import['group']);
+        $expiration = empty($level['expiration_period']) ? null : date('Y-m-d', strtotime($import['transaction_date'] . " + ${$level['cycle_number']} ${$level['cycle_period']}"));
+        $transaction_info = count($import) ? array_merge($import, array(
+            'user_id' => $user_id,
+            'membership_id' => $level['id'],
+            'code_id' => $import[''],
+            'initial_payment' => $import['amount'],
+            'billing_amount' => $import['amount'],
+            'cycle_number' => $level['cycle_number'],
+            'cycle_period' => $level['cycle_period'],
+            'billing_limit' => $level['billing_limit'],
+            'trial_amount' => $import[''],
+            'trial_limit' => $import[''],
+            'status' => $import[''],
+            'startdate' => $import['transaction_date'],
+            'enddate' =>  $expiration,
+            'billing_street' => $import['address_1'],
+            'billing_city' => $import['city'],
+            'billing_state' => $import['state_province'],
+            'billing_zip' => $import['zip'],
+            'billing_country' => $import['country'],
+            'billing_phone' => $import['phone'],
+            'subtotal' => $import['amount'],
+            'tax' => 0,
+            'total' => $import['amount'],
+            'payment_type' => $import['payment_type_name'],
+            'cardtype' => $import[''],
+            'gateway' => $this->get_payment_gateway($import['payment_type_name']),
+            'payment_transaction_id' => $import['receipt_id'],
+            'timestamp' => $import['submit_date']
+        )) : array();
+        return $transaction_info;
+    }
+
+    function get_payment_gateway($payment_type)
+    {
+        $gateway = '';
+        preg_match('/card/i', $payment_type) and $gateway = 'authorizenet';
+        preg_match('/check|cash/i', $payment_type) and $gateway = 'check';
+        return $gateway;
+    }
+
+
+    function get_membership_info(array $transaction)
+    {
+        $membership_info = array(
+            'user_id' => $transaction['user_id'],
+            'membership_id' => $transaction['membership_id'],
+            'code_id' => $transaction['code_id'],
+            'initial_payment' => $transaction['initial_payment'],
+            'billing_amount' => $transaction['billing_amount'],
+            'cycle_number' => $transaction['cycle_number'],
+            'cycle_period' => $transaction['cycle_period'],
+            'billing_limit' => $transaction['billing_limit'],
+            'trial_amount' => $transaction['trial_amount'],
+            'trial_limit' => $transaction['trial_limit'],
+            'status' => $transaction['status'],
+            'startdate' => $transaction['startdate'],
+            'enddate' => $transaction['enddate']
+        );
+        return $membership_info;
+    }
+
+    function get_membership_order(array $transaction)
+    {
+        $order = new stdClass();
+        $order->user_id = $transaction['user_id'];
+        $order->membership_id = $transaction['membership_id'];
+        $order->InitialPayment = $transaction['initial_payment'];
+        $order->billing = new stdClass();
+        $order->billing->street = $transaction['billing_street'];
+        $order->billing->city = $transaction['billing_city'];
+        $order->billing->state = $transaction['billing_state'];
+        $order->billing->zip = $transaction['billing_zip'];
+        $order->billing->country = $transaction['billing_country'];
+        $order->billing->phone = $transaction['billing_phone'];
+        $order->subtotal = $transaction['subtotal'];
+        $order->tax = $transaction['tax'];
+        $order->total = $transaction['total'];
+        $order->payment_type = $transaction['payment_type'];
+        $order->cardtype = $transaction['cardtype'];
+        $order->gateway = $transaction['gateway'];
+        $order->payment_transaction_id = $transaction['payment_transaction_id'];
+        return $order;
     }
 
     function update_imported_user_info($upload_id, $status)
@@ -785,12 +906,12 @@ Thanks
         return $wpdb->get_results($query, ARRAY_A);
     }
 
-    function get_uploaded_user_transactions($email, $row_offset = 0)
+    function get_uploaded_user_transactions($username, $email)
     {
         global $wpdb;
         $table_name = self::$transactions_table;
-        $query = "SELECT * FROM $table_name WHERE email = $email ORDER BY transaction_date ASC";
-        return apply_filters('transaction_info_mapping', $wpdb->get_row($query, ARRAY_A, $row_offset));
+        $query = "SELECT * FROM $table_name WHERE username = '$username' OR email = '$email' ORDER BY transaction_date ASC";
+        return $wpdb->get_results($query, ARRAY_A);
     }
 
     function get_total_users_uploaded()
