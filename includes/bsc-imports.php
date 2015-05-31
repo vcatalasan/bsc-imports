@@ -32,14 +32,18 @@ Thanks
     var $total_users_uploaded, $total_transactions_uploaded;
     var $uploaded;
 
-    var $status;
+    var $status, $membership_levels;
 
 	function __construct() {
         // initialize values
         self::$settings['bsc_imports_page_link'] = 'tools.php?page=bsc_membership_import';
         self::$upload_error[UPLOAD_ERR_INI_SIZE] .= sprintf(' <= %dM each.', ini_get('upload_max_filesize'));
 
-		// add admin menu
+        $this->total_users_uploaded = $this->get_total_users_uploaded();
+        $this->total_transactions_uploaded = $this->get_total_transactions_uploaded();
+        $this->membership_levels = pmpro_getAllLevels(false, true);
+
+        // add admin menu
 		add_action('admin_menu', array($this, 'bp_imports_menu'));
         add_filter('user_info_mapping', array($this, 'user_info_mapping'));
         add_filter('transaction_info_mapping', array($this, 'transaction_info_mapping'), 10, 2);
@@ -316,9 +320,9 @@ Thanks
         }
         //add extra fields for tracking
         $fields[] = "`upload_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
-        $fields[] = "`import_date` DATETIME DEFAULT NULL";
-        $fields[] = "`import_status` ENUM('inserted','updated','error') DEFAULT NULL";
         $fields[] = "`upload_id` BIGINT(20) NOT NULL AUTO_INCREMENT";
+        $fields[] = "`import_status` ENUM('inserted','updated','error') DEFAULT NULL";
+        $fields[] = "`wp_user_id` BIGINT(20) DEFAULT NULL";
         $sql = "CREATE TABLE IF NOT EXISTS $table (" . implode(', ', $fields) . ', PRIMARY KEY(`upload_id`));';
         //echo $sql . "\n";
         $wpdb->query($sql);
@@ -334,9 +338,9 @@ Thanks
             }
             //set default value
             $values[] = '\'' . addslashes(date('Y-m-d H:i:s')) . '\''; // upload date
-            $values[] = 'NULL'; // import_date
-            $values[] = 'NULL'; // import_status
             $values[] = 'NULL'; // upload_id
+            $values[] = 'NULL'; // import_status
+            $values[] = 'NULL'; // wp_user_id
             $sql = "INSERT into $table values(" . implode(', ', $values) . ');';
             //echo $sql . "\n";
             $wpdb->query($sql) and $this->uploaded++;
@@ -371,13 +375,13 @@ Thanks
         ob_start();
         ?>
         <div class="updated">
-            <div>
+            <div style="display:inline-block">
                 <p>Total new users imported: <span id="total-users-imported">0</span></p>
                 <p>Total old users updated: <span id="total-users-updated">0</span></p>
                 <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
                 <ul id="users-not-imported-list"></ul>
             </div>
-            <div>
+            <div style="display:inline-block;margin-left:120px">
                 <p>Total transactions imported: <span id="total-transactions-imported">0</span></p>
                 <p style="color: #ff0000;">Total transactions not imported: <span id="total-transactions-not-imported">0</span></p>
                 <ul id="transactions-not-imported-list"></ul>
@@ -389,7 +393,7 @@ Thanks
         </div>
         <script type="text/javascript">
             jQuery(document).ready(function($) {
-                var ok = true, eof = false, error = false;
+                var started = false;
                 var options = {
                     data: {action: 'import_users'},
                     url: '<?php echo admin_url( 'admin-ajax.php') ?>',
@@ -402,6 +406,7 @@ Thanks
                             var total_users_not_imported = parseInt($('#total-users-not-imported').html()) ;
                             var new_users_imported, old_users_updated, users_not_imported;
                             var response = jQuery.parseJSON(responseText);
+                            var ok, eof, error;
                             console.log(response);
 
                             //get result
@@ -433,7 +438,7 @@ Thanks
                                 return;
                             }
 
-                            if (ok) {
+                            if (started && ok) {
                                 $('#import-users-form').submit();
                             }
                         }
@@ -441,22 +446,26 @@ Thanks
                 };
 
                 $('#import-users-button').click(function() {
-                    if ($(this).attr('value') == 'Start') {
-                        ok = true;
-                        $(this).attr('value', 'Cancel');
-                        return true;
-                    } else if ($(this).attr('value') == 'Cancel') {
-                        $(this).attr('value', 'Start');
-                        ok = false;
-                        return false;
+                    switch ($(this).attr('value')) {
+                        case 'Start':
+                            started = true;
+                            $(this).attr('value', 'Cancel');
+                            return true;
+
+                        case 'Cancel':
+                            started = false;
+                            $(this).attr('value', 'Start');
+                            return false;
+
+                        default:
+                            started = false;
+                            return true;
                     }
-                    ok = false;
-                    return true;
                 });
 
                 $('#import-users-form').submit(function() {
-                    <?php echo 'options["data"]["XDEBUG_SESSION_START"] = "PhpStorm";' ?>
-                    if (ok) {
+                    options['data']['XDEBUG_SESSION_START'] = 'PhpStorm';
+                    if (started) {
                         //get import settings from forms
                         $('#new_member_notification').is(':checked') && (options['data']['new_member_notification'] = $('#new_member_notification').attr('value'));
                         $('#custom_notification').is(':checked') && (options['data']['custom_notification'] = $('#custom_notification').attr('value'));
@@ -584,7 +593,8 @@ Thanks
                 $this->status['users_not_imported']['count']++;
                 $this->status['users_not_imported']['users'][] = "${row['upload_id']}: no user data";
                 //Update user import table
-                $this->update_imported_user_info($user['upload_id'], 'error');
+                $user['import_status'] = 'error';
+                $this->update_imported_user_info($user);
                 continue;
             }
 
@@ -627,7 +637,8 @@ Thanks
                 $this->status['users_not_imported']['count']++;
                 $this->status['users_not_imported']['users'][] = "${row['upload_id']}: no user login/email";
                 //Update user import table
-                $this->update_imported_user_info($user['upload_id'], 'error');
+                $user['import_status'] = 'error';
+                $this->update_imported_user_info($user);
                 continue;
             }
             else if ( $userdata['user_login'] == '' )
@@ -655,9 +666,12 @@ Thanks
                 $this->status['users_not_imported']['count']++;
                 $this->status['users_not_imported']['users'][] = $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0];
                 //Update user import table
-                $this->update_imported_user_info($user['upload_id'], 'error');
+                $user['import_status'] = 'error';
+                $this->update_imported_user_info($user);
                 continue;
             } else {
+                $user['wp_user_id'] = $user_id;
+
                 //Upload user avatar if permission granted.
                 if ( $bp_status && $avatar ) {
                     $image_dir = AVATARS . '/'  . $user_id;
@@ -727,15 +741,16 @@ Thanks
                 $this->status['new_users_imported']['count']++;
                 $this->status['new_users_imported']['users'][] = $userdata['user_login'];
                 //Update user import table
-                $this->update_imported_user_info($user['upload_id'], 'inserted');
+                $user['import_status'] = 'inserted';
+                $this->update_imported_user_info($user);
             } elseif ($user_import == 2) {
                 $this->status['old_users_updated']['count']++;
                 $this->status['old_users_updated']['users'][] = $userdata['user_login'];
                 //Update user import table
-                $this->update_imported_user_info($user['upload_id'], 'updated');
+                $user['import_status'] = 'updated';
+                $this->update_imported_user_info($user);
             }
-
-            $this->import_transactions($user_id);
+            $this->total_transactions_uploaded and $this->import_transactions($user_id);
         }
 
         // check for more records
@@ -756,7 +771,7 @@ Thanks
 
         if (empty($user_details)) return;
 
-        $transactions = $this->get_uploaded_user_transactions($user_details->user_login, $user_details->user_email);
+        $transactions = $this->get_uploaded_user_transactions($user_details->user_login);
         foreach ($transactions as $row) {
 
             $transaction = apply_filters('transaction_info_mapping', $row, $user_id);
@@ -777,12 +792,21 @@ Thanks
                 $timestamp = $transaction['timestamp'];
                 $order->updateTimeStamp(date("Y", $timestamp), date("m", $timestamp), date("d", $timestamp), date("H:i:s", $timestamp));
             }
+
+            $transaction['wp_user_id'] = $user_id;
+            $this->update_imported_transaction_info($transaction);
         }
+    }
+
+    function clean_field($field)
+    {
+
+        return preg_replace('/\[EMPTY]/i', '', $field);
     }
 
     function user_info_mapping(array $import)
     {
-        $import = array_map('trim', $import);
+        $import = array_map(array($this, 'clean_field'), $import);
         $user_info = count($import) ? array_merge($import, array(
             //wp_user fields
             'user_login' => $import['username'],
@@ -802,7 +826,7 @@ Thanks
 
     function transaction_info_mapping(array $import, $user_id)
     {
-        $import = array_map('trim', $import);
+        $import = array_map(array($this, 'clean_field'), $import);
         $level = $this->get_membership_level($import['group']);
         $expiration = empty($level['expiration_period']) ? null : date('Y-m-d', strtotime($import['transaction_date'] . " + ${$level['cycle_number']} ${$level['cycle_period']}"));
         $transaction_info = count($import) ? array_merge($import, array(
@@ -834,6 +858,7 @@ Thanks
             'payment_transaction_id' => $import['receipt_id'],
             'timestamp' => $import['submit_date']
         )) : array();
+        if (empty($expiration)) unset($transaction_info['enddate']);
         return $transaction_info;
     }
 
@@ -845,6 +870,17 @@ Thanks
         return $gateway;
     }
 
+    function get_membership_level($name)
+    {
+        $level = array();
+        foreach ($this->membership_levels as $membership) {
+            if (preg_match("/$name/i", $membership->name)) {
+                $level = (array) $membership;
+                break;
+            }
+        }
+        return $level;
+    }
 
     function get_membership_info(array $transaction)
     {
@@ -868,7 +904,7 @@ Thanks
 
     function get_membership_order(array $transaction)
     {
-        $order = new stdClass();
+        $order = new MemberOrder();
         $order->user_id = $transaction['user_id'];
         $order->membership_id = $transaction['membership_id'];
         $order->InitialPayment = $transaction['initial_payment'];
@@ -889,12 +925,21 @@ Thanks
         return $order;
     }
 
-    function update_imported_user_info($upload_id, $status)
+    function update_imported_user_info(array $user)
     {
         global $wpdb;
         $table_name = self::$users_table;
-        $current_date = date('Y-m-d H:i:s');
-        $update= "UPDATE $table_name SET import_date = '$current_date', import_status = '$status' WHERE upload_id = $upload_id";
+        $update = $wpdb->prepare("UPDATE $table_name SET import_status = '%s', wp_user_id = %d WHERE upload_id = %d",
+            $user['import_status'], $user['wp_user_id'], $user['upload_id']);
+        return $wpdb->query($update);
+    }
+
+    function update_imported_transaction_info(array $transaction)
+    {
+        global $wpdb;
+        $table_name = self::$transactions_table;
+        $update = $wpdb->prepare("UPDATE $table_name SET import_status = '%s', wp_user_id = %d WHERE upload_id = %d",
+            $transaction['import_status'], $transaction['wp_user_id'], $transaction['upload_id']);
         return $wpdb->query($update);
     }
 
@@ -902,15 +947,15 @@ Thanks
     {
         global $wpdb;
         $table_name = self::$users_table;
-        $query = "SELECT * FROM $table_name WHERE import_date is NULL LIMIT $rows";
+        $query = $wpdb->prepare("SELECT * FROM $table_name WHERE import_status is NULL LIMIT %d", $rows);
         return $wpdb->get_results($query, ARRAY_A);
     }
 
-    function get_uploaded_user_transactions($username, $email)
+    function get_uploaded_user_transactions($username)
     {
         global $wpdb;
         $table_name = self::$transactions_table;
-        $query = "SELECT * FROM $table_name WHERE username = '$username' OR email = '$email' ORDER BY transaction_date ASC";
+        $query = $wpdb->prepare("SELECT * FROM $table_name WHERE username = '%s' ORDER BY transaction_date ASC", $username);
         return $wpdb->get_results($query, ARRAY_A);
     }
 
@@ -920,19 +965,19 @@ Thanks
         $table_name = self::$users_table;
         $count = 0;
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
-            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_date is null");
+            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_status is null");
         }
         return $count;
     }
 
-    function get_total_transactions_uploaded($email = null)
+    function get_total_transactions_uploaded($username = null)
     {
         global $wpdb;
         $table_name = self::$transactions_table;
         $count = 0;
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
-            $email and $mail = " AND email = $email";
-            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_date is null $email");
+            $username and $username = " AND username = '$username'";
+            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_status is null $username");
         }
         return $count;
     }
