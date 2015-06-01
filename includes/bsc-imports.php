@@ -387,7 +387,7 @@ Thanks
                 <ul id="transactions-not-imported-list"></ul>
             </div>
             <form id="import-users-form" action="" method="post">
-                <input id="upload-id" type="hidden" name="upload_id" value="10" />
+                <input id="upload-id" type="hidden" name="upload_id" value="1" />
                 <input id="import-users-button" type="submit" value="Start" />
             </form>
         </div>
