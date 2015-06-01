@@ -855,8 +855,6 @@ Thanks
 
     function import_transactions()
     {
-        global $wpdb;
-
         // set default values
         $this->status = array(
             'new_transactions_imported' => array('count' => 0, 'transactions' => array()),
@@ -891,13 +889,13 @@ Thanks
                 }
 
                 $this->status['new_transactions_imported']['count']++;
-                $this->status['new_transactions_imported']['transactions'][] = $transaction['payment_transaction_id'];
+                $this->status['new_transactions_imported']['transactions'][] = $transaction['username'] . ':' . $transaction['payment_transaction_id'];
                 $transaction['import_status'] = 'inserted';
                 $this->update_imported_transaction_info($transaction);
             } else {
                 // order already exist
                 $this->status['transactions_not_imported']['count']++;
-                $this->status['transactions_not_imported']['transactions'][] = $transaction['payment_transaction_id'] . ' already exist';
+                $this->status['transactions_not_imported']['transactions'][] = $transaction['username'] . ':' . $transaction['payment_transaction_id'] . ' already exist';
                 $transaction['import_status'] = 'existed';
                 $this->update_imported_transaction_info($transaction);
             }
