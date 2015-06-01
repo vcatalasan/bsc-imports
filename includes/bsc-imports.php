@@ -321,7 +321,7 @@ Thanks
         //add extra fields for tracking
         $fields[] = "`upload_date` TIMESTAMP DEFAULT CURRENT_TIMESTAMP";
         $fields[] = "`upload_id` BIGINT(20) NOT NULL AUTO_INCREMENT";
-        $fields[] = "`import_status` ENUM('inserted','updated','error') DEFAULT NULL";
+        $fields[] = "`import_status` ENUM('inserted','updated','existed','error') DEFAULT NULL";
         $fields[] = "`wp_user_id` BIGINT(20) DEFAULT NULL";
         $sql = "CREATE TABLE IF NOT EXISTS $table (" . implode(', ', $fields) . ', PRIMARY KEY(`upload_id`));';
         //echo $sql . "\n";
@@ -375,21 +375,25 @@ Thanks
         ob_start();
         ?>
         <div class="updated">
+            <input id="upload-id" type="hidden" name="upload_id" value="1" />
             <div style="display:inline-block">
                 <p>Total new users imported: <span id="total-users-imported">0</span></p>
                 <p>Total old users updated: <span id="total-users-updated">0</span></p>
                 <p style="color: #ff0000;">Total users not imported: <span id="total-users-not-imported">0</span></p>
                 <ul id="users-not-imported-list"></ul>
+                <form id="import-users-form" action="" method="post">
+                    <input id="import-users-button" type="submit" value="Start" />
+                </form>
             </div>
             <div style="display:inline-block;margin-left:120px">
+                <p>Total transactions linked to users: <span id="total-transactions-linked"><?php echo $this->get_total_transactions_linked() ?></span></p>
                 <p>Total transactions imported: <span id="total-transactions-imported">0</span></p>
                 <p style="color: #ff0000;">Total transactions not imported: <span id="total-transactions-not-imported">0</span></p>
                 <ul id="transactions-not-imported-list"></ul>
+                <form id="import-transactions-form" action="" method="post">
+                    <input id="import-transactions-button" type="submit" value="Start" />
+                </form>
             </div>
-            <form id="import-users-form" action="" method="post">
-                <input id="upload-id" type="hidden" name="upload_id" value="1" />
-                <input id="import-users-button" type="submit" value="Start" />
-            </form>
         </div>
         <script type="text/javascript">
             jQuery(document).ready(function($) {
@@ -403,8 +407,9 @@ Thanks
                             var total_users_uploaded = parseInt($('#total-users-uploaded').html());
                             var total_new_users_imported = parseInt($('#total-users-imported').html());
                             var total_old_users_updated = parseInt($('#total-users-updated').html());
-                            var total_users_not_imported = parseInt($('#total-users-not-imported').html()) ;
-                            var new_users_imported, old_users_updated, users_not_imported;
+                            var total_users_not_imported = parseInt($('#total-users-not-imported').html());
+                            var total_transactions_linked = parseInt($('#total-transactions-linked').html());
+                            var new_users_imported, old_users_updated, users_not_imported, users_transactions_linked;
                             var response = jQuery.parseJSON(responseText);
                             var ok, eof, error;
                             console.log(response);
@@ -418,14 +423,17 @@ Thanks
                             new_users_imported = parseInt(response['new_users_imported']['count']);
                             old_users_updated = parseInt(response['old_users_updated']['count']);
                             users_not_imported = parseInt(response['users_not_imported']['count']);
+                            users_transactions_linked = parseInt(response['users_transactions_linked']['count']);
 
                             total_users_uploaded -= (new_users_imported + old_users_updated + users_not_imported);
+                            total_transactions_linked += users_transactions_linked;
 
                             //update stat
                             $('#total-users-imported').html(total_new_users_imported + new_users_imported);
                             $('#total-users-updated').html(total_old_users_updated + old_users_updated);
                             $('#total-users-not-imported').html(total_users_not_imported + users_not_imported);
                             $('#total-users-uploaded').html(total_users_uploaded);
+                            $('#total-transactions-linked').html(total_transactions_linked);
 
                             // list users not imported
                             for (var i = 0; i < users_not_imported; i++) {
@@ -448,16 +456,19 @@ Thanks
                 $('#import-users-button').click(function() {
                     switch ($(this).attr('value')) {
                         case 'Start':
+                            $('#import-transactions-button').attr('disabled','disabled');
                             started = true;
                             $(this).attr('value', 'Cancel');
                             return true;
 
                         case 'Cancel':
+                            $('#import-transactions-button').removeAttr('disabled');
                             started = false;
                             $(this).attr('value', 'Start');
                             return false;
 
                         default:
+                            $('#import-transactions-button').removeAttr('disabled');
                             started = false;
                             return true;
                     }
@@ -470,6 +481,89 @@ Thanks
                         $('#new_member_notification').is(':checked') && (options['data']['new_member_notification'] = $('#new_member_notification').attr('value'));
                         $('#custom_notification').is(':checked') && (options['data']['custom_notification'] = $('#custom_notification').attr('value'));
                         $('#avatar').is(':checked') && (options['data']['avatar'] = $('#avatar').attr('value'));
+                        options['data']['upload_id'] = $('#upload-id').attr('value');
+                        $.ajax(options);
+                        return false;
+                    }
+                    return true;
+                });
+            })
+
+            jQuery(document).ready(function($) {
+                var started = false;
+                var options = {
+                    data: {action: 'import_transactions'},
+                    url: '<?php echo admin_url( 'admin-ajax.php') ?>',
+                    method: 'post',
+                    success: function (responseText, statusText, xhr, $form) {
+                        if (responseText) {
+                            var total_transactions_uploaded = parseInt($('#total-transactions-uploaded').html());
+                            var total_new_transactions_imported = parseInt($('#total-transactions-imported').html());
+                            var total_transactions_not_imported = parseInt($('#total-transactions-not-imported').html()) ;
+                            var new_transactions_imported, transactions_not_imported;
+                            var response = jQuery.parseJSON(responseText);
+                            var ok, eof, error;
+                            console.log(response);
+
+                            //get result
+                            ok = parseInt(response['ok']) === 1 ? true : false;
+                            eof = parseInt(response['eof']) === 1 ? true : false;
+                            error = response['error'] !== undefined ? true : false;
+
+
+                            new_transactions_imported = parseInt(response['new_transactions_imported']['count']);
+                            transactions_not_imported = parseInt(response['transactions_not_imported']['count']);
+
+                            total_transactions_uploaded -= (new_transactions_imported + transactions_not_imported);
+
+                            //update stat
+                            $('#total-transactions-imported').html(total_new_transactions_imported + new_transactions_imported);
+                            $('#total-transactions-not-imported').html(total_transactions_not_imported + transactions_not_imported);
+                            $('#total-transactions-uploaded').html(total_transactions_uploaded);
+
+                            // list transactions not imported
+                            for (var i = 0; i < transactions_not_imported; i++) {
+                                $('#transactions-not-imported-list').append("<li>" + response['transactions_not_imported']['transactions'][i] + "</li>");
+                            }
+
+                            if (eof || error) {
+                                ok = false;
+                                $('#import-transactions-button').attr('value', eof ? 'All Done!' : response['error']);
+                                return;
+                            }
+
+                            if (started && ok) {
+                                $('#import-transactions-form').submit();
+                            }
+                        }
+                    }
+                };
+
+                $('#import-transactions-button').click(function() {
+                    switch ($(this).attr('value')) {
+                        case 'Start':
+                            $('#import-users-button').attr('disabled','disabled');
+                            started = true;
+                            $(this).attr('value', 'Cancel');
+                            return true;
+
+                        case 'Cancel':
+                            $('#import-users-button').removeAttr('disabled');
+                            started = false;
+                            $(this).attr('value', 'Start');
+                            return false;
+
+                        default:
+                            $('#import-users-button').removeAttr('disabled');
+                            started = false;
+                            return true;
+                    }
+                });
+
+                $('#import-transactions-form').submit(function() {
+                    options['data']['XDEBUG_SESSION_START'] = 'PhpStorm';
+                    if (started) {
+                        //get import settings from forms
                         options['data']['upload_id'] = $('#upload-id').attr('value');
                         $.ajax(options);
                         return false;
@@ -490,7 +584,8 @@ Thanks
         $this->status = array(
             'new_users_imported' => array('count' => 0, 'users' => array()),
             'old_users_updated' => array('count' => 0, 'users' => array()),
-            'users_not_imported' => array('count' => 0, 'users' => array())
+            'users_not_imported' => array('count' => 0, 'users' => array()),
+            'users_transactions_linked' => array('count' => 0, 'users' => array())
         );
 
         $upload_id = $_POST['upload_id'];
@@ -750,7 +845,6 @@ Thanks
                 $user['import_status'] = 'updated';
                 $this->update_imported_user_info($user);
             }
-            $this->total_transactions_uploaded and $this->import_transactions($user_id);
         }
 
         // check for more records
@@ -759,43 +853,66 @@ Thanks
         $this->return_result($this->status);
     }
 
+    function import_transactions()
+    {
+        global $wpdb;
+
+        // set default values
+        $this->status = array(
+            'new_transactions_imported' => array('count' => 0, 'transactions' => array()),
+            'transactions_not_imported' => array('count' => 0, 'transactions' => array())
+        );
+
+        $upload_id = $_POST['upload_id'];
+
+        $transactions = $this->get_uploaded_transactions_info($upload_id);
+        foreach ($transactions as $row) {
+
+            $transaction = apply_filters('transaction_info_mapping', $row);
+
+            $membership = $this->get_membership_info($transaction);
+
+            //add order so integration with gateway works
+            $new_order = $this->new_membership_order($transaction);
+
+            // import this transaction only if it does not currently exist in pmpro
+            if ($new_order) {
+                //change membership level
+                if (!empty($membership['membership_id'])) {
+                    pmpro_changeMembershipLevel($membership, $membership['user_id']);
+                }
+
+                $new_order->saveOrder();
+
+                //update timestamp of order?
+                if (!empty($transaction['timestamp'])) {
+                    $timestamp = strtotime($transaction['timestamp']);
+                    $new_order->updateTimeStamp(date("Y", $timestamp), date("m", $timestamp), date("d", $timestamp), date("H:i:s", $timestamp));
+                }
+
+                $this->status['new_transactions_imported']['count']++;
+                $this->status['new_transactions_imported']['transactions'][] = $transaction['payment_transaction_id'];
+                $transaction['import_status'] = 'inserted';
+                $this->update_imported_transaction_info($transaction);
+            } else {
+                // order already exist
+                $this->status['transactions_not_imported']['count']++;
+                $this->status['transactions_not_imported']['transactions'][] = $transaction['payment_transaction_id'] . ' already exist';
+                $transaction['import_status'] = 'existed';
+                $this->update_imported_transaction_info($transaction);
+            }
+        }
+
+        // check for more records
+        $upload_id > count($transactions) and $this->status['eof'] = 1;
+        $this->status['ok'] = 1;
+        $this->return_result($this->status);
+    }
+
     function return_result($status)
     {
         echo json_encode($status);
         exit;
-    }
-
-    function import_transactions($user_id)
-    {
-        $user_details = get_user_by( 'id', $user_id );
-
-        if (empty($user_details)) return;
-
-        $transactions = $this->get_uploaded_user_transactions($user_details->user_login);
-        foreach ($transactions as $row) {
-
-            $transaction = apply_filters('transaction_info_mapping', $row, $user_id);
-
-            $membership = $this->get_membership_info($transaction);
-
-            //change membership level
-            if (!empty($membership['membership_id'])) {
-                pmpro_changeMembershipLevel($membership, $user_id);
-            }
-
-            //add order so integration with gateway works
-            $order = $this->get_membership_order($transaction);
-            $order->saveOrder();
-
-            //update timestamp of order?
-            if (!empty($transaction['timestamp'])) {
-                $timestamp = $transaction['timestamp'];
-                $order->updateTimeStamp(date("Y", $timestamp), date("m", $timestamp), date("d", $timestamp), date("H:i:s", $timestamp));
-            }
-
-            $transaction['wp_user_id'] = $user_id;
-            $this->update_imported_transaction_info($transaction);
-        }
     }
 
     function clean_field($field)
@@ -824,13 +941,13 @@ Thanks
         return $user_info;
     }
 
-    function transaction_info_mapping(array $import, $user_id)
+    function transaction_info_mapping(array $import)
     {
         $import = array_map(array($this, 'clean_field'), $import);
         $level = $this->get_membership_level($import['group']);
         //$expiration = empty($level['expiration_period']) ? null : date('Y-m-d', strtotime($import['transaction_date'] . " + ${$level['cycle_number']} ${$level['cycle_period']}"));
         $transaction_info = count($import) ? array_merge($import, array(
-            'user_id' => $user_id,
+            'user_id' => $import['wp_user_id'],
             'membership_id' => $level['id'],
             'code_id' => $import[''],
             'initial_payment' => $import['amount'],
@@ -843,7 +960,8 @@ Thanks
             'status' => $import[''],
             'startdate' => $import['transaction_date'],
             'enddate' =>  $import['expiration_date'],
-            'billing_street' => $import['address_1'],
+            'billing_name' => ucwords($import['first_name'] . ' ' . $import['last_name']),
+            'billing_street' => $import['address_1'] . ' ' . $import['address'],
             'billing_city' => $import['city'],
             'billing_state' => $import['state_province'],
             'billing_zip' => $import['zip'],
@@ -855,6 +973,7 @@ Thanks
             'payment_type' => $import['payment_type_name'],
             'cardtype' => $import[''],
             'gateway' => $this->get_payment_gateway($import['payment_type_name']),
+            'gateway_environment' => 'imported',
             'payment_transaction_id' => $import['receipt_id'],
             'timestamp' => $import['submit_date']
         )) : array();
@@ -902,13 +1021,18 @@ Thanks
         return $membership_info;
     }
 
-    function get_membership_order(array $transaction)
+    function new_membership_order(array $transaction)
     {
         $order = new MemberOrder();
+
+        if ($order->getMemberOrderByPaymentTransactionID($transaction['payment_transaction_id']))
+            return false;
+
         $order->user_id = $transaction['user_id'];
         $order->membership_id = $transaction['membership_id'];
         $order->InitialPayment = $transaction['initial_payment'];
         $order->billing = new stdClass();
+        $order->billing->name = $transaction['billing_name'];
         $order->billing->street = $transaction['billing_street'];
         $order->billing->city = $transaction['billing_city'];
         $order->billing->state = $transaction['billing_state'];
@@ -921,6 +1045,7 @@ Thanks
         $order->payment_type = $transaction['payment_type'];
         $order->cardtype = $transaction['cardtype'];
         $order->gateway = $transaction['gateway'];
+        $order->gateway_environment = $transaction['gateway_environment'];
         $order->payment_transaction_id = $transaction['payment_transaction_id'];
         return $order;
     }
@@ -931,15 +1056,15 @@ Thanks
         $table_name = self::$users_table;
         $update = $wpdb->prepare("UPDATE $table_name SET import_status = '%s', wp_user_id = %d WHERE upload_id = %d",
             $user['import_status'], $user['wp_user_id'], $user['upload_id']);
-        return $wpdb->query($update);
+        $wpdb->query($update) and $this->total_transactions_uploaded and $this->link_user_transactions($user);
     }
 
     function update_imported_transaction_info(array $transaction)
     {
         global $wpdb;
         $table_name = self::$transactions_table;
-        $update = $wpdb->prepare("UPDATE $table_name SET import_status = '%s', wp_user_id = %d WHERE upload_id = %d",
-            $transaction['import_status'], $transaction['wp_user_id'], $transaction['upload_id']);
+        $update = $wpdb->prepare("UPDATE $table_name SET import_status = '%s' WHERE upload_id = %d",
+            $transaction['import_status'], $transaction['upload_id']);
         return $wpdb->query($update);
     }
 
@@ -947,15 +1072,17 @@ Thanks
     {
         global $wpdb;
         $table_name = self::$users_table;
-        $query = $wpdb->prepare("SELECT * FROM $table_name WHERE import_status is NULL LIMIT %d", $rows);
+        $rows = intval($rows);
+        $query = "SELECT * FROM $table_name WHERE import_status is NULL LIMIT $rows";
         return $wpdb->get_results($query, ARRAY_A);
     }
 
-    function get_uploaded_user_transactions($username)
+    function get_uploaded_transactions_info($rows)
     {
         global $wpdb;
         $table_name = self::$transactions_table;
-        $query = $wpdb->prepare("SELECT * FROM $table_name WHERE username = '%s' ORDER BY transaction_date ASC", $username);
+        $rows = intval($rows);
+        $query = "SELECT * FROM $table_name WHERE import_status is NULL AND wp_user_id > 0 ORDER BY wp_user_id ASC, transaction_date ASC LIMIT $rows";
         return $wpdb->get_results($query, ARRAY_A);
     }
 
@@ -967,7 +1094,7 @@ Thanks
         if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
             $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_status is null");
         }
-        return $count;
+        return intval($count);
     }
 
     function get_total_transactions_uploaded($username = null)
@@ -979,10 +1106,38 @@ Thanks
             $username and $username = " AND username = '$username'";
             $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_status is null $username");
         }
-        return $count;
+        return intval($count);
     }
 
-	function send_notifiction_to_new_user( $user_id, $user_pass ) {
+    function link_user_transactions(array $user)
+    {
+        global $wpdb;
+
+        if (empty($user)) return;
+
+        $table_name = self::$transactions_table;
+        $update = $wpdb->prepare("UPDATE $table_name SET wp_user_id = %d WHERE username = '%s'",
+            $user['wp_user_id'], $user['username']);
+        $linked = $wpdb->query($update);
+        if ($linked) {
+            $this->status['users_transactions_linked']['count'] += $linked;
+            $this->status['users_transactions_linked']['users'][] = $user['username'];
+        }
+        return $linked;
+    }
+
+    function get_total_transactions_linked()
+    {
+        global $wpdb;
+        $table_name = self::$transactions_table;
+        $count = 0;
+        if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
+            $count = $wpdb->get_var("SELECT count(*) FROM $table_name WHERE import_status is null AND wp_user_id > 0");
+        }
+        return intval($count);
+    }
+
+    function send_notifiction_to_new_user( $user_id, $user_pass ) {
 		$this->wp_new_user_notification( $user_id, $user_pass, true );
 	}
 
