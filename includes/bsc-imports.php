@@ -800,8 +800,8 @@ Thanks
 
     function clean_field($field)
     {
-
-        return preg_replace('/\[EMPTY]/i', '', $field);
+        $field = preg_replace('/\[EMPTY]/i', '', $field);
+        return trim($field);
     }
 
     function user_info_mapping(array $import)
@@ -828,7 +828,7 @@ Thanks
     {
         $import = array_map(array($this, 'clean_field'), $import);
         $level = $this->get_membership_level($import['group']);
-        $expiration = empty($level['expiration_period']) ? null : date('Y-m-d', strtotime($import['transaction_date'] . " + ${$level['cycle_number']} ${$level['cycle_period']}"));
+        //$expiration = empty($level['expiration_period']) ? null : date('Y-m-d', strtotime($import['transaction_date'] . " + ${$level['cycle_number']} ${$level['cycle_period']}"));
         $transaction_info = count($import) ? array_merge($import, array(
             'user_id' => $user_id,
             'membership_id' => $level['id'],
@@ -842,7 +842,7 @@ Thanks
             'trial_limit' => $import[''],
             'status' => $import[''],
             'startdate' => $import['transaction_date'],
-            'enddate' =>  $expiration,
+            'enddate' =>  $import['expiration_date'],
             'billing_street' => $import['address_1'],
             'billing_city' => $import['city'],
             'billing_state' => $import['state_province'],
@@ -858,7 +858,7 @@ Thanks
             'payment_transaction_id' => $import['receipt_id'],
             'timestamp' => $import['submit_date']
         )) : array();
-        if (empty($expiration)) unset($transaction_info['enddate']);
+        //if (empty($expiration)) unset($transaction_info['enddate']);
         return $transaction_info;
     }
 
