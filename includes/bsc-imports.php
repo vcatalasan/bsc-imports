@@ -686,7 +686,7 @@ Thanks
             // If no user data, comeout!
             if ( empty( $userdata ) ) {
                 $this->status['users_not_imported']['count']++;
-                $this->status['users_not_imported']['users'][] = "${row['upload_id']}: no user data";
+                $this->status['users_not_imported']['users'][] = "${user['upload_id']}: no user data";
                 //Update user import table
                 $user['import_status'] = 'error';
                 $this->update_imported_user_info($user);
@@ -730,7 +730,7 @@ Thanks
 
             if ( ( $userdata['user_login'] == '' ) && ( $userdata['user_email'] == '' ) ) {
                 $this->status['users_not_imported']['count']++;
-                $this->status['users_not_imported']['users'][] = "${row['upload_id']}: no user login/email";
+                $this->status['users_not_imported']['users'][] = "${user['upload_id']}: no user login/email";
                 //Update user import table
                 $user['import_status'] = 'error';
                 $this->update_imported_user_info($user);
@@ -759,7 +759,7 @@ Thanks
             // Is there an error?
             if ( is_wp_error( $user_id ) ) {
                 $this->status['users_not_imported']['count']++;
-                $this->status['users_not_imported']['users'][] = $userdata['user_login'] . ' ' . $user_id->errors['existing_user_login'][0];
+                $this->status['users_not_imported']['users'][] = "${user['upload_id']}:${user['user_login']} " . $user_id->errors['existing_user_login'][0];
                 //Update user import table
                 $user['import_status'] = 'error';
                 $this->update_imported_user_info($user);
@@ -834,13 +834,13 @@ Thanks
 
             if ($user_import == 1) {
                 $this->status['new_users_imported']['count']++;
-                $this->status['new_users_imported']['users'][] = $userdata['user_login'];
+                $this->status['new_users_imported']['users'][] = "${user['upload_id']}:${user['user_login']}";
                 //Update user import table
                 $user['import_status'] = 'inserted';
                 $this->update_imported_user_info($user);
             } elseif ($user_import == 2) {
                 $this->status['old_users_updated']['count']++;
-                $this->status['old_users_updated']['users'][] = $userdata['user_login'];
+                $this->status['old_users_updated']['users'][] = "${user['upload_id']}:${user['user_login']}";
                 //Update user import table
                 $user['import_status'] = 'updated';
                 $this->update_imported_user_info($user);
@@ -868,6 +868,29 @@ Thanks
 
             $transaction = apply_filters('transaction_info_mapping', $row);
 
+            // check if transaction is linked to a wordpress user
+            if (empty($transaction['user_id'])) {
+                if ($transaction['username'] || $transaction['email']) {
+                    // link this transaction to a wordpress user
+                    $user = get_user_by('login', $transaction['username']);
+                    empty($user) and $user = get_user_by('email', $transaction['email']);
+                    if (empty($user)) {
+                        $this->status['transactions_not_imported']['count']++;
+                        $this->status['transactions_not_imported']['transactions'][] = "${transaction['upload_id']}: wp user not found";
+                        $transaction['import_status'] = 'error';
+                        $this->update_imported_transaction_info($transaction);
+                        continue;
+                    }
+                    $transaction['user_id'] = $user->ID;
+                } else {
+                    $this->status['transactions_not_imported']['count']++;
+                    $this->status['transactions_not_imported']['transactions'][] = "${transaction['upload_id']}: no username or email";
+                    $transaction['import_status'] = 'error';
+                    $this->update_imported_transaction_info($transaction);
+                    continue;
+                }
+            }
+
             $membership = $this->get_membership_info($transaction);
 
             //add order so integration with gateway works
@@ -889,13 +912,13 @@ Thanks
                 }
 
                 $this->status['new_transactions_imported']['count']++;
-                $this->status['new_transactions_imported']['transactions'][] = $transaction['username'] . ':' . $transaction['payment_transaction_id'];
+                $this->status['new_transactions_imported']['transactions'][] = "${transaction['upload_id']}:${transaction['username']}";
                 $transaction['import_status'] = 'inserted';
                 $this->update_imported_transaction_info($transaction);
             } else {
                 // order already exist
                 $this->status['transactions_not_imported']['count']++;
-                $this->status['transactions_not_imported']['transactions'][] = $transaction['username'] . ':' . $transaction['payment_transaction_id'] . ' already exist';
+                $this->status['transactions_not_imported']['transactions'][] = "${transaction['upload_id']}:${transaction['username']} already exist";
                 $transaction['import_status'] = 'existed';
                 $this->update_imported_transaction_info($transaction);
             }
@@ -943,7 +966,6 @@ Thanks
     {
         $import = array_map(array($this, 'clean_field'), $import);
         $level = $this->get_membership_level($import['group']);
-        //$expiration = empty($level['expiration_period']) ? null : date('Y-m-d', strtotime($import['transaction_date'] . " + ${$level['cycle_number']} ${$level['cycle_period']}"));
         $transaction_info = count($import) ? array_merge($import, array(
             'user_id' => $import['wp_user_id'],
             'membership_id' => $level['id'],
@@ -975,7 +997,6 @@ Thanks
             'payment_transaction_id' => $import['receipt_id'],
             'timestamp' => $import['submit_date']
         )) : array();
-        //if (empty($expiration)) unset($transaction_info['enddate']);
         return $transaction_info;
     }
 
@@ -1080,7 +1101,7 @@ Thanks
         global $wpdb;
         $table_name = self::$transactions_table;
         $rows = intval($rows);
-        $query = "SELECT * FROM $table_name WHERE import_status is NULL AND wp_user_id > 0 ORDER BY wp_user_id ASC, transaction_date ASC LIMIT $rows";
+        $query = "SELECT * FROM $table_name WHERE import_status is NULL ORDER BY wp_user_id ASC, username ASC, transaction_date ASC LIMIT $rows";
         return $wpdb->get_results($query, ARRAY_A);
     }
 
