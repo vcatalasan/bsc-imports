@@ -375,7 +375,7 @@ Thanks
         ob_start();
         ?>
         <div class="updated">
-            <input id="upload-id" type="hidden" name="upload_id" value="1" />
+            <input id="upload-id" type="hidden" name="upload_id" value="10" />
             <div style="display:inline-block">
                 <p>Total new users imported: <span id="total-users-imported">0</span></p>
                 <p>Total old users updated: <span id="total-users-updated">0</span></p>
@@ -981,7 +981,7 @@ Thanks
             'startdate' => $import['transaction_date'],
             'enddate' =>  $import['expiration_date'],
             'billing_name' => ucwords($import['first_name'] . ' ' . $import['last_name']),
-            'billing_street' => $import['address_1'] . ' ' . $import['address'],
+            'billing_street' => "${import['address']} ${import['address_1']} ${import['address2']}",
             'billing_city' => $import['city'],
             'billing_state' => $import['state_province'],
             'billing_zip' => $import['zip'],
