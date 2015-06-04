@@ -15,8 +15,8 @@ class BSC_Imports_Plugin extends BSC_Imports
 
 	// required plugins to used in this application
 	var $required_plugins = array(
-		'BuddyPress' => 'buddypress/bp-loader.php',
-		'PaidMembershipPro' => 'paid-memberships-pro/paid-memberships-pro.php'
+		'Buddy Press' => 'buddypress/bp-loader.php',
+		'Paid Membership Pro' => 'paid-memberships-pro/paid-memberships-pro.php'
 	);
 
 	/**
