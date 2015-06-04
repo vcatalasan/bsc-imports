@@ -8,8 +8,6 @@
 
 class BSC_Imports
 {
-    static $settings;
-
     static $users_table = 'import_users';
 	static $transactions_table = 'import_transactions';
 
@@ -36,7 +34,6 @@ Thanks
 
 	function __construct() {
         // initialize values
-        self::$settings['bsc_imports_page_link'] = 'tools.php?page=bsc_membership_import';
         self::$upload_error[UPLOAD_ERR_INI_SIZE] .= sprintf(' <= %dM each.', ini_get('upload_max_filesize'));
 
         $this->total_users_uploaded = $this->get_total_users_uploaded();
@@ -590,20 +587,14 @@ Thanks
 
         $upload_id = $_POST['upload_id'];
 
-        $bp_status = is_plugin_active( 'buddypress/bp-loader.php' );
-        if ($bp_status) {
-            // Check whether the avatars directory present or not. If not then create.
-            $bp_plugin_details = get_plugin_data( ABSPATH .'wp-content/plugins/buddypress/bp-loader.php' );
-            $bp_plugin_version = $bp_plugin_details['Version'];
+        // Check whether the avatars directory present or not. If not then create.
+        $bp_plugin_details = get_plugin_data( ABSPATH .'wp-content/plugins/buddypress/bp-loader.php' );
+        $bp_plugin_version = $bp_plugin_details['Version'];
 
-            if ( $bp_plugin_version < 1.8 ) {
-                define( 'AVATARS', ABSPATH . 'assets/avatars' );
-            } else {
-                define( 'AVATARS', ABSPATH . 'wp-content/uploads/avatars' );
-            }
+        if ( $bp_plugin_version < 1.8 ) {
+            define( 'AVATARS', ABSPATH . 'assets/avatars' );
         } else {
-            $this->status['error'] = 'BuddyPress plugin is not installed or activated';
-            $this->return_result($this->status);
+            define( 'AVATARS', ABSPATH . 'wp-content/uploads/avatars' );
         }
 
         // User data fields list used to differentiate with user meta
@@ -676,7 +667,7 @@ Thanks
 
                 if ( in_array( $column_name, $wp_userdata_fields ) )
                     $userdata[$column_name] = $cvalue;
-                else if ( $bp_status && $bp_field_id ) {
+                else if ( $bp_field_id ) {
                     $bp_provided_fields[] = $column_name;
                     $bpmeta[$bp_field_id] = $cvalue;
                 }
@@ -768,7 +759,7 @@ Thanks
                 $user['wp_user_id'] = $user_id;
 
                 //Upload user avatar if permission granted.
-                if ( $bp_status && $avatar ) {
+                if ( $avatar ) {
                     $image_dir = AVATARS . '/'  . $user_id;
                     mkdir( $image_dir, 0777 );
                     $current_time = time();
